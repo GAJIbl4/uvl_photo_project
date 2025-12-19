@@ -77,13 +77,13 @@ export class MavlinkClient extends EventEmitter {
         this.buffer = this.buffer.slice(magicIndex);
       }
 
-      if (this.buffer.length < 12) {
-        // Недостаточно данных для заголовка
+      if (this.buffer.length < 10) {
+        // Недостаточно данных для заголовка (нужно минимум 10 байт)
         break;
       }
 
       const payloadLength = this.buffer[1];
-      const packetLength = 12 + payloadLength; // заголовок + payload + CRC
+      const packetLength = 10 + payloadLength + 2; // заголовок (10) + payload + CRC (2)
 
       if (this.buffer.length < packetLength) {
         // Неполный пакет, ждём ещё данных
@@ -140,7 +140,10 @@ export class MavlinkClient extends EventEmitter {
     header.writeUInt8(this.sequence, 4); // sequence
     header.writeUInt8(this.systemId, 5); // system ID
     header.writeUInt8(this.componentId, 6); // component ID
-    header.writeUInt24LE(messageId, 7); // message ID (3 bytes)
+    // Записываем message ID как 24-битное значение (3 байта) в little-endian
+    header.writeUInt8(messageId & 0xFF, 7);
+    header.writeUInt8((messageId >> 8) & 0xFF, 8);
+    header.writeUInt8((messageId >> 16) & 0xFF, 9);
 
     this.sequence = (this.sequence + 1) % 256;
 
@@ -161,7 +164,7 @@ export class MavlinkClient extends EventEmitter {
   }
 
   handleMessage(msg) {
-    if (msg.length < 12) return; // Минимальный размер MAVLink 2.0 пакета
+    if (msg.length < 10) return; // Минимальный размер заголовка MAVLink 2.0 (10 байт)
 
     // Проверяем magic byte
     if (msg[0] !== 0xFD) return;
@@ -170,10 +173,11 @@ export class MavlinkClient extends EventEmitter {
     const sequence = msg[4];
     const systemId = msg[5];
     const componentId = msg[6];
-    const messageId = msg.readUInt24LE(7);
+    // Читаем message ID как 24-битное значение (3 байта) в little-endian
+    const messageId = msg[7] | (msg[8] << 8) | (msg[9] << 16);
 
-    const packetLength = 12 + payloadLength; // заголовок + payload + CRC
-    if (msg.length < packetLength + 2) return; // Неполный пакет (нужны ещё 2 байта CRC)
+    const packetLength = 10 + payloadLength + 2; // заголовок (10) + payload + CRC (2)
+    if (msg.length < packetLength) return; // Неполный пакет
 
     const payload = msg.slice(10, 10 + payloadLength);
     const receivedCrc = msg.readUInt16LE(10 + payloadLength);
