@@ -14,9 +14,6 @@ const log = {
 // Буфер для накопления данных
 let buffer = Buffer.alloc(0);
 
-// MAVLink 1.0 структура пакета:
-// [0xFE] [length] [sequence] [system_id] [component_id] [message_id] [payload...] [crc_low] [crc_high]
-
 function crc16(data, crc = 0xFFFF) {
   for (let i = 0; i < data.length; i++) {
     let tmp = data[i] ^ (crc & 0xFF);
@@ -27,20 +24,21 @@ function crc16(data, crc = 0xFFFF) {
   return crc;
 }
 
-function parseMavlink1(buffer) {
+// Парсер MAVLink 2.0 (magic byte 0xFD)
+function parseMavlink2(buffer) {
   const packets = [];
   let offset = 0;
 
   while (offset < buffer.length) {
-    // Ищем magic byte 0xFE
-    const magicIndex = buffer.indexOf(0xFE, offset);
+    // Ищем magic byte 0xFD
+    const magicIndex = buffer.indexOf(0xFD, offset);
     if (magicIndex === -1) break;
 
-    // Проверяем, достаточно ли данных для заголовка (минимум 6 байт: FE + length + seq + sys + comp + msg)
-    if (magicIndex + 6 > buffer.length) break;
+    // Проверяем, достаточно ли данных для заголовка (минимум 10 байт)
+    if (magicIndex + 10 > buffer.length) break;
 
-    const length = buffer[magicIndex + 1];
-    const packetLength = 6 + length + 2; // заголовок (6) + payload + CRC (2)
+    const payloadLength = buffer[magicIndex + 1];
+    const packetLength = 10 + payloadLength + 2; // заголовок (10) + payload + CRC (2)
 
     // Проверяем, есть ли полный пакет
     if (magicIndex + packetLength > buffer.length) break;
@@ -49,32 +47,32 @@ function parseMavlink1(buffer) {
     const packet = buffer.slice(magicIndex, magicIndex + packetLength);
     
     // Проверяем CRC
-    const header = packet.slice(0, 6);
-    const payload = packet.slice(6, 6 + length);
-    const receivedCrc = packet.readUInt16LE(6 + length);
+    const header = packet.slice(0, 10);
+    const payload = packet.slice(10, 10 + payloadLength);
+    const receivedCrc = packet.readUInt16LE(10 + payloadLength);
     
-    // Вычисляем CRC для MAVLink 1.0
-    // CRC включает: заголовок (без magic byte) + payload + message_id (добавляется отдельно)
-    const headerWithoutMagic = header.slice(1); // без 0xFE
+    // Вычисляем CRC для MAVLink 2.0
+    // CRC включает: заголовок (без magic byte) + payload + message_id (3 байта)
+    const headerWithoutMagic = header.slice(1); // без 0xFD
     let calcCrc = crc16(headerWithoutMagic);
     calcCrc = crc16(payload, calcCrc);
     
-    // MAVLink 1.0 добавляет message_id в CRC отдельно
-    const messageId = header[5];
-    calcCrc = crc16(Buffer.from([messageId]), calcCrc);
+    // MAVLink 2.0 добавляет message_id (3 байта) в CRC
+    const messageId = header[7] | (header[8] << 8) | (header[9] << 16);
+    calcCrc = crc16(Buffer.from([messageId & 0xFF, (messageId >> 8) & 0xFF, (messageId >> 16) & 0xFF]), calcCrc);
 
     if (calcCrc === receivedCrc) {
       // Пакет валидный
-      const messageId = header[5];
-      const systemId = header[3];
-      const componentId = header[4];
+      const systemId = header[5];
+      const componentId = header[6];
       
       packets.push({
         messageId,
         systemId,
         componentId,
         payload,
-        raw: packet
+        raw: packet,
+        version: 2
       });
 
       offset = magicIndex + packetLength;
@@ -87,7 +85,58 @@ function parseMavlink1(buffer) {
   return { packets, remaining: buffer.slice(offset) };
 }
 
-// Названия сообщений MAVLink 1.0 (основные)
+// Парсер MAVLink 1.0 (magic byte 0xFE) - на случай если используется
+function parseMavlink1(buffer) {
+  const packets = [];
+  let offset = 0;
+
+  while (offset < buffer.length) {
+    const magicIndex = buffer.indexOf(0xFE, offset);
+    if (magicIndex === -1) break;
+
+    if (magicIndex + 6 > buffer.length) break;
+
+    const length = buffer[magicIndex + 1];
+    const packetLength = 6 + length + 2;
+
+    if (magicIndex + packetLength > buffer.length) break;
+
+    const packet = buffer.slice(magicIndex, magicIndex + packetLength);
+    
+    const header = packet.slice(0, 6);
+    const payload = packet.slice(6, 6 + length);
+    const receivedCrc = packet.readUInt16LE(6 + length);
+    
+    const headerWithoutMagic = header.slice(1);
+    let calcCrc = crc16(headerWithoutMagic);
+    calcCrc = crc16(payload, calcCrc);
+    
+    const messageId = header[5];
+    calcCrc = crc16(Buffer.from([messageId]), calcCrc);
+
+    if (calcCrc === receivedCrc) {
+      const systemId = header[3];
+      const componentId = header[4];
+      
+      packets.push({
+        messageId,
+        systemId,
+        componentId,
+        payload,
+        raw: packet,
+        version: 1
+      });
+
+      offset = magicIndex + packetLength;
+    } else {
+      offset = magicIndex + 1;
+    }
+  }
+
+  return { packets, remaining: buffer.slice(offset) };
+}
+
+// Названия сообщений MAVLink (общие для v1 и v2)
 const MESSAGE_NAMES = {
   0: 'HEARTBEAT',
   1: 'SYS_STATUS',
@@ -114,6 +163,7 @@ function formatMessage(messageId, payload) {
   }
   
   if (messageId === 65) { // RC_CHANNELS
+    if (payload.length < 20) return `${name}: недостаточно данных`;
     const chan1 = payload.readUInt16LE(4);
     const chan2 = payload.readUInt16LE(6);
     const chan3 = payload.readUInt16LE(8);
@@ -127,7 +177,7 @@ function formatMessage(messageId, payload) {
   
   if (messageId === 253) { // STATUSTEXT
     const severity = payload[0];
-    const text = payload.slice(1).toString('utf8').replace(/\0/g, '');
+    const text = payload.slice(1).toString('utf8').replace(/\0/g, '').trim();
     return `${name}: [${severity}] ${text}`;
   }
   
@@ -135,6 +185,7 @@ function formatMessage(messageId, payload) {
 }
 
 let running = true;
+let packetsCount = 0;
 
 process.on('SIGINT', () => {
   log.info('Получен сигнал завершения, останавливаюсь...');
@@ -155,7 +206,7 @@ process.on('SIGTERM', () => {
 });
 
 log.info('='.repeat(60));
-log.info('Запуск MAVLink парсера');
+log.info('Запуск MAVLink парсера (v1.0 и v2.0)');
 log.info('='.repeat(60));
 log.info(`Порт: ${PORT}`);
 log.info(`Скорость: ${BAUD_RATE}`);
@@ -176,20 +227,39 @@ port.on('data', (data) => {
   // Добавляем данные в буфер
   buffer = Buffer.concat([buffer, data]);
   
-  // Парсим пакеты
-  const result = parseMavlink1(buffer);
+  // Сначала пробуем парсить MAVLink 2.0 (приоритет)
+  let result = parseMavlink2(buffer);
+  
+  // Если не нашли пакеты v2, пробуем v1
+  if (result.packets.length === 0) {
+    result = parseMavlink1(buffer);
+  }
+  
+  // Обновляем буфер - оставляем только необработанные данные
   buffer = result.remaining;
   
   // Выводим найденные пакеты
   for (const packet of result.packets) {
+    packetsCount++;
     const formatted = formatMessage(packet.messageId, packet.payload);
-    log.message(`[SYS:${packet.systemId} COMP:${packet.componentId}] ${formatted}`);
+    log.message(`[v${packet.version}] [SYS:${packet.systemId} COMP:${packet.componentId}] ${formatted}`);
   }
   
-  // Если буфер слишком большой (больше 1KB), очищаем его
-  if (buffer.length > 1024) {
-    log.info(`Буфер слишком большой (${buffer.length} байт), очищаю...`);
-    buffer = Buffer.alloc(0);
+  // Если буфер слишком большой (больше 2KB), ищем последний magic byte и обрезаем
+  if (buffer.length > 2048) {
+    const lastFD = buffer.lastIndexOf(0xFD);
+    const lastFE = buffer.lastIndexOf(0xFE);
+    const lastMagic = Math.max(lastFD, lastFE);
+    
+    if (lastMagic > 0) {
+      // Оставляем данные начиная с последнего magic byte
+      buffer = buffer.slice(lastMagic);
+      log.info(`Буфер обрезан до ${buffer.length} байт (найден magic byte на позиции ${lastMagic})`);
+    } else {
+      // Если magic byte не найден, очищаем буфер полностью
+      log.info(`Буфер слишком большой (${buffer.length} байт), magic byte не найден, очищаю...`);
+      buffer = Buffer.alloc(0);
+    }
   }
 });
 
@@ -200,6 +270,14 @@ port.on('error', (err) => {
 port.on('close', () => {
   log.info('Порт закрыт');
 });
+
+// Периодический вывод статистики
+setInterval(() => {
+  if (packetsCount > 0) {
+    log.info(`Статистика: обработано ${packetsCount} пакетов, размер буфера: ${buffer.length} байт`);
+    packetsCount = 0; // Сбрасываем счётчик
+  }
+}, 10000); // Каждые 10 секунд
 
 // Держим процесс живым
 setInterval(() => {
