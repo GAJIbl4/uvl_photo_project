@@ -1,13 +1,12 @@
-import dgram from 'dgram';
+import { SerialPort } from 'serialport';
 import { EventEmitter } from 'events';
 
-// Простой парсер MAVLink 2.0 для работы через UDP
+// Простой парсер MAVLink 2.0 для работы через Serial порт
 // Используется для чтения RC_CHANNELS и отправки STATUSTEXT
 
 const MAVLINK_MSG_ID_RC_CHANNELS = 65;
 const MAVLINK_MSG_ID_STATUSTEXT = 253;
 const MAVLINK_MSG_ID_HEARTBEAT = 0;
-const MAVLINK_MSG_ID_AUTOPILOT_VERSION = 148;
 
 const MAV_TYPE_ONBOARD_CONTROLLER = 18;
 const MAV_AUTOPILOT_INVALID = 8;
@@ -16,38 +15,88 @@ const MAV_SEVERITY_INFO = 6;
 const MAV_SEVERITY_ERROR = 3;
 
 export class MavlinkClient extends EventEmitter {
-  constructor(host, port, systemId, componentId) {
+  constructor(port, baudRate, systemId, componentId) {
     super();
-    this.host = host;
     this.port = port;
+    this.baudRate = baudRate;
     this.systemId = systemId;
     this.componentId = componentId;
-    this.socket = null;
+    this.serialPort = null;
     this.connected = false;
     this.sequence = 0;
+    this.buffer = Buffer.alloc(0);
   }
 
   connect() {
     return new Promise((resolve, reject) => {
-      this.socket = dgram.createSocket('udp4');
-
-      this.socket.on('message', (msg, rinfo) => {
-        this.handleMessage(msg);
+      this.serialPort = new SerialPort({
+        path: this.port,
+        baudRate: this.baudRate,
+        lock: false
       });
 
-      this.socket.on('error', (err) => {
-        this.emit('error', err);
-        reject(err);
-      });
-
-      this.socket.bind(this.port, () => {
+      this.serialPort.on('open', () => {
         this.connected = true;
         this.emit('connected');
         // Начинаем отправлять HEARTBEAT
         this.startHeartbeat();
         resolve();
       });
+
+      this.serialPort.on('data', (data) => {
+        this.buffer = Buffer.concat([this.buffer, data]);
+        this.processBuffer();
+      });
+
+      this.serialPort.on('error', (err) => {
+        this.emit('error', err);
+        if (!this.connected) {
+          reject(err);
+        }
+      });
+
+      this.serialPort.on('close', () => {
+        this.connected = false;
+        this.emit('disconnected');
+      });
     });
+  }
+
+  processBuffer() {
+    // Ищем начало пакета MAVLink (magic byte 0xFD)
+    while (this.buffer.length > 0) {
+      const magicIndex = this.buffer.indexOf(0xFD);
+      if (magicIndex === -1) {
+        // Нет начала пакета, очищаем буфер
+        this.buffer = Buffer.alloc(0);
+        break;
+      }
+
+      // Удаляем данные до начала пакета
+      if (magicIndex > 0) {
+        this.buffer = this.buffer.slice(magicIndex);
+      }
+
+      if (this.buffer.length < 12) {
+        // Недостаточно данных для заголовка
+        break;
+      }
+
+      const payloadLength = this.buffer[1];
+      const packetLength = 12 + payloadLength; // заголовок + payload + CRC
+
+      if (this.buffer.length < packetLength) {
+        // Неполный пакет, ждём ещё данных
+        break;
+      }
+
+      // Извлекаем полный пакет
+      const packet = this.buffer.slice(0, packetLength);
+      this.buffer = this.buffer.slice(packetLength);
+
+      // Обрабатываем пакет
+      this.handleMessage(packet);
+    }
   }
 
   startHeartbeat() {
@@ -80,7 +129,7 @@ export class MavlinkClient extends EventEmitter {
   }
 
   sendMessage(messageId, payload) {
-    if (!this.connected || !this.socket) return;
+    if (!this.connected || !this.serialPort) return;
 
     // MAVLink 2.0 заголовок
     const header = Buffer.alloc(10);
@@ -103,8 +152,8 @@ export class MavlinkClient extends EventEmitter {
     // Собираем пакет
     const packet = Buffer.concat([header, payload, Buffer.from([crc & 0xFF, (crc >> 8) & 0xFF])]);
 
-    // Отправляем на указанный адрес и порт
-    this.socket.send(packet, 0, packet.length, this.port, this.host, (err) => {
+    // Отправляем через Serial порт
+    this.serialPort.write(packet, (err) => {
       if (err) {
         this.emit('error', err);
       }
@@ -123,9 +172,22 @@ export class MavlinkClient extends EventEmitter {
     const componentId = msg[6];
     const messageId = msg.readUInt24LE(7);
 
-    if (msg.length < 12 + payloadLength) return; // Неполный пакет
+    const packetLength = 12 + payloadLength; // заголовок + payload + CRC
+    if (msg.length < packetLength + 2) return; // Неполный пакет (нужны ещё 2 байта CRC)
 
     const payload = msg.slice(10, 10 + payloadLength);
+    const receivedCrc = msg.readUInt16LE(10 + payloadLength);
+
+    // Проверяем CRC
+    const header = msg.slice(0, 10);
+    let crc = this.crc16(header);
+    crc = this.crc16(payload, crc);
+    crc = this.crc16(Buffer.from([messageId & 0xFF, (messageId >> 8) & 0xFF, (messageId >> 16) & 0xFF]), crc);
+
+    if (crc !== receivedCrc) {
+      // CRC не совпадает, игнорируем пакет
+      return;
+    }
 
     // Парсим RC_CHANNELS
     if (messageId === MAVLINK_MSG_ID_RC_CHANNELS) {
@@ -180,9 +242,9 @@ export class MavlinkClient extends EventEmitter {
   }
 
   close() {
-    if (this.socket) {
-      this.socket.close();
-      this.socket = null;
+    if (this.serialPort) {
+      this.serialPort.close();
+      this.serialPort = null;
     }
     this.connected = false;
   }
