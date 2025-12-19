@@ -89,16 +89,26 @@ function parseMavlink2(buffer) {
 function parseMavlink1(buffer) {
   const packets = [];
   let offset = 0;
+  let lastValidPacket = 0;
 
   while (offset < buffer.length) {
     const magicIndex = buffer.indexOf(0xFE, offset);
     if (magicIndex === -1) break;
 
+    // Проверяем, достаточно ли данных для заголовка
     if (magicIndex + 6 > buffer.length) break;
 
     const length = buffer[magicIndex + 1];
-    const packetLength = 6 + length + 2;
+    
+    // Проверяем разумность длины (MAVLink 1.0 payload обычно до 255 байт, но обычно меньше)
+    if (length > 255 || length < 0) {
+      offset = magicIndex + 1;
+      continue;
+    }
+    
+    const packetLength = 6 + length + 2; // заголовок (6) + payload + CRC (2)
 
+    // Проверяем, есть ли полный пакет
     if (magicIndex + packetLength > buffer.length) break;
 
     const packet = buffer.slice(magicIndex, magicIndex + packetLength);
@@ -107,10 +117,13 @@ function parseMavlink1(buffer) {
     const payload = packet.slice(6, 6 + length);
     const receivedCrc = packet.readUInt16LE(6 + length);
     
-    const headerWithoutMagic = header.slice(1);
+    // Вычисляем CRC для MAVLink 1.0
+    // CRC включает: заголовок (без magic byte) + payload + message_id (добавляется отдельно)
+    const headerWithoutMagic = header.slice(1); // без 0xFE
     let calcCrc = crc16(headerWithoutMagic);
     calcCrc = crc16(payload, calcCrc);
     
+    // MAVLink 1.0 добавляет message_id в CRC отдельно
     const messageId = header[5];
     calcCrc = crc16(Buffer.from([messageId]), calcCrc);
 
@@ -127,13 +140,21 @@ function parseMavlink1(buffer) {
         version: 1
       });
 
+      lastValidPacket = magicIndex + packetLength;
       offset = magicIndex + packetLength;
     } else {
+      // CRC не совпадает, ищем следующий magic byte
       offset = magicIndex + 1;
     }
   }
 
-  return { packets, remaining: buffer.slice(offset) };
+  // Оставляем данные начиная с последнего валидного пакета
+  // Если пакетов не найдено, оставляем последние 256 байт (на случай неполного пакета)
+  const remaining = packets.length > 0 
+    ? buffer.slice(lastValidPacket)
+    : buffer.slice(Math.max(0, buffer.length - 256));
+
+  return { packets, remaining };
 }
 
 // Названия сообщений MAVLink (общие для v1 и v2)
@@ -227,14 +248,6 @@ port.on('data', (data) => {
   // Добавляем данные в буфер
   buffer = Buffer.concat([buffer, data]);
   
-  // Отладочный вывод первых данных (только один раз)
-  if (buffer.length > 0 && buffer.length < 100) {
-    const hexSample = Array.from(buffer.slice(0, Math.min(32, buffer.length)))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join(' ');
-    log.info(`Первые данные (${buffer.length} байт): ${hexSample}`);
-  }
-  
   // Сначала пробуем парсить MAVLink 2.0 (приоритет)
   let result = parseMavlink2(buffer);
   
@@ -264,29 +277,9 @@ port.on('data', (data) => {
       buffer = buffer.slice(lastMagic);
       log.info(`Буфер обрезан до ${buffer.length} байт (найден magic byte на позиции ${lastMagic})`);
     } else {
-      // Если magic byte не найден, выводим первые байты для отладки
-      const sample = buffer.slice(0, Math.min(64, buffer.length));
-      const hexSample = Array.from(sample)
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join(' ');
-      log.error(`Буфер слишком большой (${buffer.length} байт), magic byte не найден!`);
-      log.error(`Первые ${sample.length} байт буфера (hex): ${hexSample}`);
-      log.error(`Поиск всех вхождений 0xFD: ${buffer.filter(b => b === 0xFD).length}, 0xFE: ${buffer.filter(b => b === 0xFE).length}`);
-      
-      // Пробуем найти любые подозрительные паттерны
-      for (let i = 0; i < Math.min(100, buffer.length - 10); i++) {
-        if (buffer[i] === 0xFD || buffer[i] === 0xFE) {
-          log.info(`Найден magic byte ${buffer[i].toString(16)} на позиции ${i}`);
-          const context = buffer.slice(i, Math.min(i + 20, buffer.length));
-          const hexContext = Array.from(context)
-            .map(b => b.toString(16).padStart(2, '0'))
-            .join(' ');
-          log.info(`Контекст: ${hexContext}`);
-        }
-      }
-      
-      // Очищаем буфер полностью
-      buffer = Buffer.alloc(0);
+      // Если magic byte не найден, оставляем последние 512 байт (на случай неполных пакетов)
+      log.info(`Буфер слишком большой (${buffer.length} байт), magic byte не найден, оставляю последние 512 байт`);
+      buffer = buffer.slice(-512);
     }
   }
 });
