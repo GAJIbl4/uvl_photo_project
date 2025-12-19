@@ -16,7 +16,9 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "serialport": "^12.0.0"
+    "serialport": "^12.0.0",
+    "jspack": "^0.0.4",
+    "lodash": "^4.17.21"
   },
   "devDependencies": {}
 }
