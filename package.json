@@ -1,7 +1,7 @@
 {
   "name": "uvl-photo-project",
   "version": "0.1.1",
-  "description": "Система автоматического фотографирования для Raspberry Pi с Ardupilot",
+  "description": "Система связи с полётным контроллером через MAVLink",
   "main": "index.js",
   "type": "module",
   "scripts": {
@@ -11,16 +11,12 @@
   "keywords": [
     "ardupilot",
     "mavlink",
-    "camera",
     "raspberry-pi"
   ],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@serialport/parser-readline": "^12.0.0",
-    "serialport": "^12.0.0",
-    "winston": "^3.11.0",
-    "mavlink": "^2.0.0"
+    "serialport": "^12.0.0"
   }
 }
 
