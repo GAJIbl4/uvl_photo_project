@@ -227,6 +227,14 @@ port.on('data', (data) => {
   // Добавляем данные в буфер
   buffer = Buffer.concat([buffer, data]);
   
+  // Отладочный вывод первых данных (только один раз)
+  if (buffer.length > 0 && buffer.length < 100) {
+    const hexSample = Array.from(buffer.slice(0, Math.min(32, buffer.length)))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join(' ');
+    log.info(`Первые данные (${buffer.length} байт): ${hexSample}`);
+  }
+  
   // Сначала пробуем парсить MAVLink 2.0 (приоритет)
   let result = parseMavlink2(buffer);
   
@@ -256,8 +264,28 @@ port.on('data', (data) => {
       buffer = buffer.slice(lastMagic);
       log.info(`Буфер обрезан до ${buffer.length} байт (найден magic byte на позиции ${lastMagic})`);
     } else {
-      // Если magic byte не найден, очищаем буфер полностью
-      log.info(`Буфер слишком большой (${buffer.length} байт), magic byte не найден, очищаю...`);
+      // Если magic byte не найден, выводим первые байты для отладки
+      const sample = buffer.slice(0, Math.min(64, buffer.length));
+      const hexSample = Array.from(sample)
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join(' ');
+      log.error(`Буфер слишком большой (${buffer.length} байт), magic byte не найден!`);
+      log.error(`Первые ${sample.length} байт буфера (hex): ${hexSample}`);
+      log.error(`Поиск всех вхождений 0xFD: ${buffer.filter(b => b === 0xFD).length}, 0xFE: ${buffer.filter(b => b === 0xFE).length}`);
+      
+      // Пробуем найти любые подозрительные паттерны
+      for (let i = 0; i < Math.min(100, buffer.length - 10); i++) {
+        if (buffer[i] === 0xFD || buffer[i] === 0xFE) {
+          log.info(`Найден magic byte ${buffer[i].toString(16)} на позиции ${i}`);
+          const context = buffer.slice(i, Math.min(i + 20, buffer.length));
+          const hexContext = Array.from(context)
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join(' ');
+          log.info(`Контекст: ${hexContext}`);
+        }
+      }
+      
+      // Очищаем буфер полностью
       buffer = Buffer.alloc(0);
     }
   }
