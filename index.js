@@ -11,202 +11,7 @@ const log = {
   message: (msg) => console.log(`[MSG] ${new Date().toISOString()} - ${msg}`),
 };
 
-// Буфер для накопления данных
-let buffer = Buffer.alloc(0);
-
-function crc16(data, crc = 0xFFFF) {
-  for (let i = 0; i < data.length; i++) {
-    let tmp = data[i] ^ (crc & 0xFF);
-    tmp = (tmp ^ (tmp << 4)) & 0xFF;
-    crc = (crc >> 8) ^ (tmp << 8) ^ (tmp << 3) ^ (tmp >> 4);
-    crc = crc & 0xFFFF;
-  }
-  return crc;
-}
-
-// Парсер MAVLink 2.0 (magic byte 0xFD)
-function parseMavlink2(buffer) {
-  const packets = [];
-  let offset = 0;
-
-  while (offset < buffer.length) {
-    // Ищем magic byte 0xFD
-    const magicIndex = buffer.indexOf(0xFD, offset);
-    if (magicIndex === -1) break;
-
-    // Проверяем, достаточно ли данных для заголовка (минимум 10 байт)
-    if (magicIndex + 10 > buffer.length) break;
-
-    const payloadLength = buffer[magicIndex + 1];
-    const packetLength = 10 + payloadLength + 2; // заголовок (10) + payload + CRC (2)
-
-    // Проверяем, есть ли полный пакет
-    if (magicIndex + packetLength > buffer.length) break;
-
-    // Извлекаем пакет
-    const packet = buffer.slice(magicIndex, magicIndex + packetLength);
-    
-    // Проверяем CRC
-    const header = packet.slice(0, 10);
-    const payload = packet.slice(10, 10 + payloadLength);
-    const receivedCrc = packet.readUInt16LE(10 + payloadLength);
-    
-    // Вычисляем CRC для MAVLink 2.0
-    // CRC включает: заголовок (без magic byte) + payload + message_id (3 байта)
-    const headerWithoutMagic = header.slice(1); // без 0xFD
-    let calcCrc = crc16(headerWithoutMagic);
-    calcCrc = crc16(payload, calcCrc);
-    
-    // MAVLink 2.0 добавляет message_id (3 байта) в CRC
-    const messageId = header[7] | (header[8] << 8) | (header[9] << 16);
-    calcCrc = crc16(Buffer.from([messageId & 0xFF, (messageId >> 8) & 0xFF, (messageId >> 16) & 0xFF]), calcCrc);
-
-    if (calcCrc === receivedCrc) {
-      // Пакет валидный
-      const systemId = header[5];
-      const componentId = header[6];
-      
-      packets.push({
-        messageId,
-        systemId,
-        componentId,
-        payload,
-        raw: packet,
-        version: 2
-      });
-
-      offset = magicIndex + packetLength;
-    } else {
-      // CRC не совпадает, ищем следующий magic byte
-      offset = magicIndex + 1;
-    }
-  }
-
-  return { packets, remaining: buffer.slice(offset) };
-}
-
-// Парсер MAVLink 1.0 (magic byte 0xFE) - на случай если используется
-function parseMavlink1(buffer) {
-  const packets = [];
-  let offset = 0;
-  let lastValidPacket = 0;
-
-  while (offset < buffer.length) {
-    const magicIndex = buffer.indexOf(0xFE, offset);
-    if (magicIndex === -1) break;
-
-    // Проверяем, достаточно ли данных для заголовка
-    if (magicIndex + 6 > buffer.length) break;
-
-    const length = buffer[magicIndex + 1];
-    
-    // Проверяем разумность длины (MAVLink 1.0 payload обычно до 255 байт, но обычно меньше)
-    if (length > 255 || length < 0) {
-      offset = magicIndex + 1;
-      continue;
-    }
-    
-    const packetLength = 6 + length + 2; // заголовок (6) + payload + CRC (2)
-
-    // Проверяем, есть ли полный пакет
-    if (magicIndex + packetLength > buffer.length) break;
-
-    const packet = buffer.slice(magicIndex, magicIndex + packetLength);
-    
-    const header = packet.slice(0, 6);
-    const payload = packet.slice(6, 6 + length);
-    const receivedCrc = packet.readUInt16LE(6 + length);
-    
-    // Вычисляем CRC для MAVLink 1.0
-    // CRC включает: заголовок (без magic byte) + payload + message_id (добавляется отдельно)
-    const headerWithoutMagic = header.slice(1); // без 0xFE
-    let calcCrc = crc16(headerWithoutMagic);
-    calcCrc = crc16(payload, calcCrc);
-    
-    // MAVLink 1.0 добавляет message_id в CRC отдельно
-    const messageId = header[5];
-    calcCrc = crc16(Buffer.from([messageId]), calcCrc);
-
-    if (calcCrc === receivedCrc) {
-      const systemId = header[3];
-      const componentId = header[4];
-      
-      packets.push({
-        messageId,
-        systemId,
-        componentId,
-        payload,
-        raw: packet,
-        version: 1
-      });
-
-      lastValidPacket = magicIndex + packetLength;
-      offset = magicIndex + packetLength;
-    } else {
-      // CRC не совпадает, ищем следующий magic byte
-      offset = magicIndex + 1;
-    }
-  }
-
-  // Оставляем данные начиная с последнего валидного пакета
-  // Если пакетов не найдено, оставляем последние 256 байт (на случай неполного пакета)
-  const remaining = packets.length > 0 
-    ? buffer.slice(lastValidPacket)
-    : buffer.slice(Math.max(0, buffer.length - 256));
-
-  return { packets, remaining };
-}
-
-// Названия сообщений MAVLink (общие для v1 и v2)
-const MESSAGE_NAMES = {
-  0: 'HEARTBEAT',
-  1: 'SYS_STATUS',
-  2: 'SYSTEM_TIME',
-  24: 'GPS_RAW_INT',
-  65: 'RC_CHANNELS',
-  74: 'VFR_HUD',
-  105: 'HIGH_LATENCY',
-  109: 'VIBRATION',
-  147: 'BATTERY_STATUS',
-  253: 'STATUSTEXT',
-};
-
-function formatMessage(messageId, payload) {
-  const name = MESSAGE_NAMES[messageId] || `MSG_${messageId}`;
-  
-  if (messageId === 0) { // HEARTBEAT
-    const type = payload[0];
-    const autopilot = payload[1];
-    const baseMode = payload[2];
-    const customMode = payload.readUInt32LE(3);
-    const systemStatus = payload[7];
-    return `${name}: type=${type} autopilot=${autopilot} mode=${baseMode} status=${systemStatus}`;
-  }
-  
-  if (messageId === 65) { // RC_CHANNELS
-    if (payload.length < 20) return `${name}: недостаточно данных`;
-    const chan1 = payload.readUInt16LE(4);
-    const chan2 = payload.readUInt16LE(6);
-    const chan3 = payload.readUInt16LE(8);
-    const chan4 = payload.readUInt16LE(10);
-    const chan5 = payload.readUInt16LE(12);
-    const chan6 = payload.readUInt16LE(14);
-    const chan7 = payload.readUInt16LE(16);
-    const chan8 = payload.readUInt16LE(18);
-    return `${name}: RC1=${chan1} RC2=${chan2} RC3=${chan3} RC4=${chan4} RC5=${chan5} RC6=${chan6} RC7=${chan7} RC8=${chan8}`;
-  }
-  
-  if (messageId === 253) { // STATUSTEXT
-    const severity = payload[0];
-    const text = payload.slice(1).toString('utf8').replace(/\0/g, '').trim();
-    return `${name}: [${severity}] ${text}`;
-  }
-  
-  return `${name}: ${payload.length} bytes`;
-}
-
 let running = true;
-let packetsCount = 0;
 
 process.on('SIGINT', () => {
   log.info('Получен сигнал завершения, останавливаюсь...');
@@ -227,12 +32,15 @@ process.on('SIGTERM', () => {
 });
 
 log.info('='.repeat(60));
-log.info('Запуск MAVLink парсера (v1.0 и v2.0)');
+log.info('Запуск MAVLink клиента (JavaScript_NextGen)');
 log.info('='.repeat(60));
 log.info(`Порт: ${PORT}`);
 log.info(`Скорость: ${BAUD_RATE}`);
-log.info('Ожидание MAVLink пакетов...');
+log.info('Ожидание установки библиотеки...');
 log.info('='.repeat(60));
+
+// TODO: После установки библиотеки добавить импорт и использование
+// import { MAVLink20Processor, ... } from './mavlink';
 
 const port = new SerialPort({
   path: PORT,
@@ -242,46 +50,15 @@ const port = new SerialPort({
 
 port.on('open', () => {
   log.info('Порт открыт успешно!');
+  log.info('Ожидание установки MAVLink библиотеки...');
 });
 
 port.on('data', (data) => {
-  // Добавляем данные в буфер
-  buffer = Buffer.concat([buffer, data]);
-  
-  // Сначала пробуем парсить MAVLink 2.0 (приоритет)
-  let result = parseMavlink2(buffer);
-  
-  // Если не нашли пакеты v2, пробуем v1
-  if (result.packets.length === 0) {
-    result = parseMavlink1(buffer);
-  }
-  
-  // Обновляем буфер - оставляем только необработанные данные
-  buffer = result.remaining;
-  
-  // Выводим найденные пакеты
-  for (const packet of result.packets) {
-    packetsCount++;
-    const formatted = formatMessage(packet.messageId, packet.payload);
-    log.message(`[v${packet.version}] [SYS:${packet.systemId} COMP:${packet.componentId}] ${formatted}`);
-  }
-  
-  // Если буфер слишком большой (больше 2KB), ищем последний magic byte и обрезаем
-  if (buffer.length > 2048) {
-    const lastFD = buffer.lastIndexOf(0xFD);
-    const lastFE = buffer.lastIndexOf(0xFE);
-    const lastMagic = Math.max(lastFD, lastFE);
-    
-    if (lastMagic > 0) {
-      // Оставляем данные начиная с последнего magic byte
-      buffer = buffer.slice(lastMagic);
-      log.info(`Буфер обрезан до ${buffer.length} байт (найден magic byte на позиции ${lastMagic})`);
-    } else {
-      // Если magic byte не найден, оставляем последние 512 байт (на случай неполных пакетов)
-      log.info(`Буфер слишком большой (${buffer.length} байт), magic byte не найден, оставляю последние 512 байт`);
-      buffer = buffer.slice(-512);
-    }
-  }
+  // TODO: После установки библиотеки использовать MAVLink парсер
+  // const messages = mavlink.parse(data);
+  // for (const msg of messages) {
+  //   log.message(`Получено: ${msg.name} - ${JSON.stringify(msg)}`);
+  // }
 });
 
 port.on('error', (err) => {
@@ -291,14 +68,6 @@ port.on('error', (err) => {
 port.on('close', () => {
   log.info('Порт закрыт');
 });
-
-// Периодический вывод статистики
-setInterval(() => {
-  if (packetsCount > 0) {
-    log.info(`Статистика: обработано ${packetsCount} пакетов, размер буфера: ${buffer.length} байт`);
-    packetsCount = 0; // Сбрасываем счётчик
-  }
-}, 10000); // Каждые 10 секунд
 
 // Держим процесс живым
 setInterval(() => {
