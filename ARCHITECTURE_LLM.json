@@ -140,7 +140,7 @@
       {
         "name": "dashboard.js",
         "type": "module",
-        "purpose": "Веб-интерфейс для мониторинга и управления",
+        "purpose": "Веб-интерфейс для мониторинга и управления фотографиями",
         "class": "Dashboard",
         "extends": "EventEmitter",
         "services": {
@@ -160,7 +160,17 @@
         "state_variables": {
           "droneIp": "Текущий IP адрес Raspberry Pi (обновляется автоматически)",
           "mavlinkUdpConnected": "Статус подключения через MAVLink UDP (true/false)",
-          "mavlinkUdpClientIp": "IP адрес подключенного клиента через MAVLink UDP"
+          "mavlinkUdpClientIp": "IP адрес подключенного клиента через MAVLink UDP",
+          "lastPhoto": "Информация о последней сделанной фотографии (id, timestamp, saved, path)",
+          "cameraSettings": "Настройки камеры (width, height, exifOrientation, saveEnabled, saveDir)"
+        },
+        "websocket_commands": {
+          "getLastPhoto": "Запрос последней фотографии (отправляет base64 изображение)",
+          "downloadPhotosArchive": "Создание и отправка ZIP архива со всеми фотографиями",
+          "getCameraSettings": "Получение текущих настроек камеры",
+          "updateCameraSettings": "Обновление настроек камеры (JSON в payload)",
+          "reloadCamera": "Перезагрузка камеры с новыми настройками",
+          "deleteAllPhotos": "Удаление всех сохраненных фотографий"
         },
         "events": [
           "timestamp"
@@ -209,15 +219,22 @@
         "type": "module",
         "purpose": "Управление камерой и съёмка фотографий",
         "key_functions": {
-          "takePhoto": "Съёмка фотографии с применением EXIF поворота. Принимает id и callback, возвращает JPEG данные или ошибку. Если включено сохранение (PHOTO_SAVE_ENABLED=true), сохраняет фотографию на диск в директорию PHOTO_SAVE_DIR"
+          "takePhoto": "Съёмка фотографии с применением EXIF поворота. Принимает id и callback, возвращает JPEG данные или ошибку. Если включено сохранение (PHOTO_SAVE_ENABLED=true), сохраняет фотографию на диск в директорию PHOTO_SAVE_DIR",
+          "getCameraSettings": "Получение текущих настроек камеры (width, height, exifOrientation, saveEnabled, saveDir)",
+          "updateCameraSettings": "Обновление настроек камеры. Принимает объект с настройками, обновляет переменные окружения и возвращает обновленные настройки",
+          "reloadCamera": "Перезагрузка камеры с текущими настройками. Создает новый экземпляр LibcameravidJPEGStream",
+          "getPhotoList": "Получение списка всех сохраненных фотографий. Возвращает массив объектов с информацией о файлах (filename, path, size, mtime), отсортированный по времени изменения (новые первыми)",
+          "deleteAllPhotos": "Удаление всех сохраненных фотографий из директории. Возвращает объект {deleted: число, error: строка или null}"
         },
         "dependencies": ["camera.js", "piexifjs"],
         "key_variables": {
-          "photoWidth": "Ширина фотографии из PHOTO_WIDTH",
-          "photoHeight": "Высота фотографии из PHOTO_HEIGHT",
-          "photoExifOrientation": "Ориентация EXIF из PHOTO_EXIF_ORIENTATION",
-          "photoSaveEnabled": "Флаг включения сохранения на диск из PHOTO_SAVE_ENABLED",
-          "photoSaveDir": "Директория для сохранения фотографий из PHOTO_SAVE_DIR"
+          "photoWidth": "Ширина фотографии из PHOTO_WIDTH (можно изменять динамически)",
+          "photoHeight": "Высота фотографии из PHOTO_HEIGHT (можно изменять динамически)",
+          "photoExifOrientation": "Ориентация EXIF из PHOTO_EXIF_ORIENTATION (можно изменять динамически)",
+          "photoSaveEnabled": "Флаг включения сохранения на диск из PHOTO_SAVE_ENABLED (можно изменять динамически)",
+          "photoSaveDir": "Директория для сохранения фотографий из PHOTO_SAVE_DIR (можно изменять динамически)",
+          "camera": "Экземпляр LibcameravidJPEGStream (пересоздается при перезагрузке)",
+          "cameraError": "Флаг ошибки камеры"
         }
       },
       {
@@ -473,6 +490,7 @@
       "serve-static",
       "lodash",
       "piexifjs",
+      "archiver",
       "cancelable-promise",
       "debounce",
       "dotenv"

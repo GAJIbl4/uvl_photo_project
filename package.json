@@ -17,6 +17,7 @@
     "jspack": "^0.0.4",
     "lodash": "^4.17.21",
     "piexifjs": "^1.0.4",
+    "archiver": "^7.0.1",
     "serialport": "^10.5.0",
     "serve-static": "^1.15.0",
     "split-frames": "^2.4.4",

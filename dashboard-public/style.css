@@ -290,3 +290,30 @@
       margin-left:0.5em
     }
   }
+
+  .photo-section, .controls-section, .settings-section {
+    margin-bottom: 1em;
+  }
+
+  .photo-section h2, .controls-section h2, .settings-section h2 {
+    margin-bottom: 0.5em;
+    font-size: 1.2em;
+  }
+
+  .photo-container {
+    text-align: center;
+    padding: 0.5em;
+    border: 2px solid #aaaa;
+    border-radius: 0.3em;
+    background: #aaa1;
+  }
+
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3em;
+  }
+
+  input[type="checkbox"] {
+    width: auto;
+  }
