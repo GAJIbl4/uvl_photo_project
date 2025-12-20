@@ -1,22 +1,107 @@
-# uvl-inventory-offboard
+# uvl-photo-project
 
-### Setup:
-1. `git clone https://github.com/uvl-robotics/uvl-inventory-offboard`
-2. `cd inventory-offboard`
-3. `npm i`
-4. `./generate_env.sh > .env` and change it according to your setup
+Бортовой софт для дрона на Raspberry Pi для фотографирования по нажатию кнопки.
 
-### Common radio setup
+## Установка и запуск
+
+### 1. Установка зависимостей
+
+```bash
+npm install
+```
+
+### 2. Создание файла конфигурации .env
+
+#### Вариант A: Использование скрипта (Linux/Mac)
+
+```bash
+chmod +x tools/generate_env.sh
+./tools/generate_env.sh > .env
+```
+
+#### Вариант B: Ручное создание (Windows/Linux/Mac)
+
+Скопируйте пример конфигурации:
+
+```bash
+cp .env.example .env
+```
+
+Затем отредактируйте файл `.env` под вашу систему.
+
+### 3. Настройка .env файла
+
+Минимальные настройки для работы:
+
+```env
+# Включить камеру
+CAMERA_EN=true
+
+# Путь к последовательному порту MAVLink
+MAVLINK_SERIAL_PATH=/dev/ttyACM0
+
+# Путь к последовательному порту OSD
+OSD_SERIAL_PATH=/dev/ttyAMA0
+
+# RC канал для кнопки фотографирования
+RC_PHOTO_CH=7
+RC_PHOTO_PWM=2006
+```
+
+### 4. Запуск системы
+
+```bash
+node index.js
+```
+
+Или если файл исполняемый:
+
+```bash
+./index.js
+```
+
+## Настройка RC каналов
+
+### Кнопка фотографирования (RC Channel 7)
 
 ```
-radio6 - buttons
-  2006 - none
-  1067 - empty
-  1249 - rescan
-  1495 - notag
-   982 - unread
-
-radio7 - photo
-   982 - no
-  2006 - press
+RC_PHOTO_CH=7
+RC_PHOTO_PWM=2006  # Значение PWM при нажатии кнопки
 ```
+
+При нажатии кнопки на канале 7 с PWM значением 2006 система сделает фотографию.
+
+## Настройки камеры
+
+Основные параметры камеры в `.env`:
+
+```env
+CAMERA_EN=true                    # Включить камеру
+PHOTO_WIDTH=2028                  # Ширина фотографии (пиксели)
+PHOTO_HEIGHT=1520                 # Высота фотографии (пиксели)
+PHOTO_EXIF_ORIENTATION=6          # Ориентация EXIF (1-8)
+CAMERA_TIMEOUT=0                  # Таймаут камеры (0 = бесконечно, мс)
+CAMERA_FRAMERATE=10               # Частота кадров
+```
+
+## Веб-интерфейс
+
+После запуска системы доступен веб-интерфейс:
+
+- **HTTP**: http://localhost:8080 (статические файлы)
+- **WebSocket**: ws://localhost:8081 (двусторонняя связь)
+
+## Структура проекта
+
+- `index.js` - главный файл приложения
+- `photo.js` - модуль фотографирования
+- `camera.js` - обёртка над libcamera-vid
+- `mavlink/` - работа с протоколом MAVLink
+- `dashboard-public/` - веб-интерфейс
+
+## Требования
+
+- Node.js
+- Raspberry Pi с камерой
+- libcamera-vid (обычно предустановлен на Raspberry Pi OS)
+- Полётный контроллер с поддержкой MAVLink

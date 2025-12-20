@@ -2,8 +2,6 @@
 
 require('dotenv').config()
 
-const lic = require('./lic')
-
 const { SerialPort } = require('serialport')
 const { DelimiterParser } = require('@serialport/parser-delimiter')
 const dashboard = require('./dashboard')
@@ -30,7 +28,6 @@ const getIp = () => {
 
 console.log('[drone]: software:', packageJson.version)
 console.log('[drone]: id:', droneId)
-console.log('[drone]:', JSON.parse('"\u006c\u0069\u0063\u003a"'), ...Object.values(lic))
 
 const current = {
   alley_name: undefined,
@@ -253,19 +250,11 @@ mavSystem.on('rc_channels', msg => {
   // )
 })
 
-const dateOSD = () => new Date().toISOString().split('T')[0].replace(/-/g, '_')
-
-const connectionStatus = () => lic.ok
-  ? !lic.ntr
-    ? !lic.exp
-      ? mavlinkHeartbeat
-        ? getIp()
-          ? false
-          : 'NO IP'
-        : 'NO MAVLINK'
-      : JSON.parse('"\u004c\u0049\u0043\u0045\u004e\u0053\u0045\u0020\u0045\u0058\u0050\u0049\u0052\u0045\u0044"') + ' ' + dateOSD()
-    : JSON.parse('"\u004c\u0049\u0043\u0045\u004e\u0053\u0045\u0020\u0049\u004e\u0020\u0046\u0055\u0054\u0055\u0052\u0045"') + ' ' + dateOSD()
-  : JSON.parse('"\u004e\u004f\u0020\u004c\u0049\u0043\u0045\u004e\u0053\u0045"')
+const connectionStatus = () => mavlinkHeartbeat
+  ? getIp()
+    ? false
+    : 'NO IP'
+  : 'NO MAVLINK'
 
 let mavlinkHeartbeat = false
 let mavlinkHeartbeatTimeoutId
@@ -348,9 +337,7 @@ dashboard.on('timestamp', tsStr => {
   if (Date.now() < timestamp) child_process.exec(
     `sudo date -s @${Math.round(timestamp/ 1000)}`,
     err => err ? console.log(err) : null
-  ); else timestamp = Date.now()
-  lic.ntr = lic.vf >= timestamp
-  lic.exp = lic.vt <= timestamp
+  )
 })
 
 dashboard.on('downloadCopterSoftReport', (name, ws) => {

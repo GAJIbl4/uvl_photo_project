@@ -27,8 +27,7 @@
           "photo.js",
           "rc.js",
           "adapters.js",
-          "copter-soft.js",
-          "lic.js"
+          "copter-soft.js"
         ],
         "key_variables": {
           "droneId": "ID дрона из переменных окружения",
@@ -302,20 +301,6 @@
         }
       },
       {
-        "name": "lic.js",
-        "type": "module",
-        "purpose": "Проверка лицензии",
-        "exports": {
-          "ok": "Лицензия валидна",
-          "vt": "Время окончания лицензии (timestamp)",
-          "vf": "Время начала лицензии (timestamp)",
-          "exp": "Лицензия истекла",
-          "ntr": "Лицензия ещё не активна",
-          "sw": "Программное обеспечение разрешено к использованию"
-        },
-        "mechanism": "HMAC-SHA256 проверка подписи на основе серийного номера и временных меток"
-      },
-      {
         "name": "http-server.js",
         "type": "module",
         "purpose": "HTTP сервер для скачивания результатов инвентаризации",
@@ -538,7 +523,6 @@
   },
   "initialization_sequence": [
     "Загрузка переменных окружения (dotenv)",
-    "Проверка лицензии (lic.js)",
     "Инициализация последовательных портов (MAVLink, OSD)",
     "Создание MAVLink системы (MavSystem)",
     "Настройка подписок на MAVLink сообщения (RC_CHANNELS, HEARTBEAT)",
@@ -566,7 +550,6 @@
     ]
   },
   "security": {
-    "licensing": "Проверка лицензии через HMAC-SHA256",
     "path_traversal": "Защита в http-server.js через safePath()",
     "websocket": "Таймаут неактивных соединений (60 секунд)"
   },

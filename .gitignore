@@ -4,7 +4,5 @@ build
 dist
 updates
 uvl-inventory-offboard
-keys.json
-LICENSE_KEY
 *.log
 nocommit
