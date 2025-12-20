@@ -4,6 +4,7 @@ const { LibcameravidJPEGStream } = require('./camera')
 const { writeFileSync, mkdirSync, readdirSync, unlinkSync, statSync, existsSync } = require('node:fs')
 const { join } = require('node:path')
 const piexifjs = require('piexifjs')
+const { execSync } = require('child_process')
 
 let photoWidth = +(process.env.PHOTO_WIDTH || 2028)
 let photoHeight = +(process.env.PHOTO_HEIGHT || 1520)
@@ -12,6 +13,57 @@ let photoExifOrientation = +(process.env.PHOTO_EXIF_ORIENTATION || 6)
 
 let photoSaveEnabled = process.env.PHOTO_SAVE_ENABLED === 'true'
 let photoSaveDir = process.env.PHOTO_SAVE_DIR || './photos'
+let cameraFramerate = +(process.env.CAMERA_FRAMERATE || 10)
+
+// Допустимые разрешения для камеры Raspberry Pi (стандартные значения)
+const VALID_RESOLUTIONS = [
+  { width: 640, height: 480, label: '640x480 (VGA)' },
+  { width: 800, height: 600, label: '800x600 (SVGA)' },
+  { width: 1024, height: 768, label: '1024x768 (XGA)' },
+  { width: 1280, height: 720, label: '1280x720 (HD)' },
+  { width: 1280, height: 960, label: '1280x960' },
+  { width: 1600, height: 1200, label: '1600x1200 (UXGA)' },
+  { width: 1920, height: 1080, label: '1920x1080 (Full HD)' },
+  { width: 2028, height: 1520, label: '2028x1520 (2MP)' },
+  { width: 2592, height: 1944, label: '2592x1944 (5MP)' },
+  { width: 3280, height: 2464, label: '3280x2464 (8MP)' },
+  { width: 4056, height: 3040, label: '4056x3040 (12MP)' },
+]
+
+// Допустимые значения FPS
+const VALID_FPS = [1, 2, 5, 10, 15, 20, 25, 30, 60]
+
+// Валидация разрешения
+const validateResolution = (width, height) => {
+  const w = +width
+  const h = +height
+  if (!w || !h || w < 64 || h < 64 || w > 5000 || h > 5000) {
+    return { valid: false, error: 'Недопустимое разрешение. Ширина и высота должны быть от 64 до 5000' }
+  }
+  
+  // Проверяем, есть ли такое разрешение в списке допустимых
+  const found = VALID_RESOLUTIONS.find(r => r.width === w && r.height === h)
+  if (!found) {
+    // Разрешаем произвольные разрешения, но предупреждаем
+    return { valid: true, warning: 'Разрешение не в списке стандартных. Может не поддерживаться камерой.' }
+  }
+  
+  return { valid: true }
+}
+
+// Валидация FPS
+const validateFPS = (fps) => {
+  const f = +fps
+  if (!f || f < 1 || f > 120) {
+    return { valid: false, error: 'FPS должен быть от 1 до 120' }
+  }
+  
+  if (!VALID_FPS.includes(f)) {
+    return { valid: true, warning: 'FPS не в списке стандартных. Может не поддерживаться камерой.' }
+  }
+  
+  return { valid: true }
+}
 
 // Создаём директорию для сохранения фотографий, если включено сохранение
 if (photoSaveEnabled) {
@@ -39,6 +91,7 @@ const initCamera = () => {
   camera = new LibcameravidJPEGStream({
     width: photoWidth,
     height: photoHeight,
+    framerate: cameraFramerate,
   }, err => {
     cameraError = err
     if (err) console.log('[photo]: Camera error:', err.message)
@@ -99,15 +152,75 @@ const getCameraSettings = () => ({
   height: photoHeight,
   exifOrientation: photoExifOrientation,
   saveEnabled: photoSaveEnabled,
-  saveDir: photoSaveDir
+  saveDir: photoSaveDir,
+  framerate: cameraFramerate
 })
 
+const getValidResolutions = () => VALID_RESOLUTIONS
+
+const getValidFPS = () => VALID_FPS
+
 const updateCameraSettings = (settings) => {
-  if (settings.width !== undefined) photoWidth = +settings.width
-  if (settings.height !== undefined) photoHeight = +settings.height
-  if (settings.exifOrientation !== undefined) photoExifOrientation = +settings.exifOrientation
-  if (settings.saveEnabled !== undefined) photoSaveEnabled = settings.saveEnabled === true || settings.saveEnabled === 'true'
-  if (settings.saveDir !== undefined) photoSaveDir = settings.saveDir
+  const errors = []
+  const warnings = []
+  
+  // Валидация разрешения
+  if (settings.width !== undefined || settings.height !== undefined) {
+    const width = settings.width !== undefined ? +settings.width : photoWidth
+    const height = settings.height !== undefined ? +settings.height : photoHeight
+    const validation = validateResolution(width, height)
+    if (!validation.valid) {
+      errors.push(validation.error)
+    } else if (validation.warning) {
+      warnings.push(validation.warning)
+    } else {
+      if (settings.width !== undefined) photoWidth = width
+      if (settings.height !== undefined) photoHeight = height
+    }
+  }
+  
+  // Валидация FPS
+  if (settings.framerate !== undefined) {
+    const validation = validateFPS(settings.framerate)
+    if (!validation.valid) {
+      errors.push(validation.error)
+    } else if (validation.warning) {
+      warnings.push(validation.warning)
+    } else {
+      cameraFramerate = +settings.framerate
+    }
+  }
+  
+  // Валидация EXIF ориентации (1-8)
+  if (settings.exifOrientation !== undefined) {
+    const orientation = +settings.exifOrientation
+    if (orientation < 1 || orientation > 8) {
+      errors.push('EXIF ориентация должна быть от 1 до 8')
+    } else {
+      photoExifOrientation = orientation
+    }
+  }
+  
+  if (settings.saveEnabled !== undefined) {
+    photoSaveEnabled = settings.saveEnabled === true || settings.saveEnabled === 'true'
+  }
+  
+  if (settings.saveDir !== undefined) {
+    if (settings.saveDir.trim() === '') {
+      errors.push('Директория сохранения не может быть пустой')
+    } else {
+      photoSaveDir = settings.saveDir.trim()
+    }
+  }
+  
+  if (errors.length > 0) {
+    return { 
+      success: false, 
+      errors, 
+      warnings,
+      settings: getCameraSettings() 
+    }
+  }
   
   // Обновляем переменные окружения для совместимости
   process.env.PHOTO_WIDTH = String(photoWidth)
@@ -115,23 +228,87 @@ const updateCameraSettings = (settings) => {
   process.env.PHOTO_EXIF_ORIENTATION = String(photoExifOrientation)
   process.env.PHOTO_SAVE_ENABLED = String(photoSaveEnabled)
   process.env.PHOTO_SAVE_DIR = photoSaveDir
+  process.env.CAMERA_FRAMERATE = String(cameraFramerate)
   
   // Создаём директорию, если включено сохранение
   if (photoSaveEnabled) {
     try {
       mkdirSync(photoSaveDir, { recursive: true })
     } catch (err) {
-      console.log('[photo]: Failed to create photo directory:', err.message)
+      errors.push(`Не удалось создать директорию: ${err.message}`)
+      return { success: false, errors, warnings, settings: getCameraSettings() }
     }
   }
   
-  return getCameraSettings()
+  return { 
+    success: true, 
+    errors: [], 
+    warnings,
+    settings: getCameraSettings() 
+  }
 }
 
 const reloadCamera = () => {
+  // Валидация перед перезагрузкой
+  const resolutionValidation = validateResolution(photoWidth, photoHeight)
+  const fpsValidation = validateFPS(cameraFramerate)
+  
+  if (!resolutionValidation.valid) {
+    return {
+      success: false,
+      error: resolutionValidation.error,
+      settings: getCameraSettings()
+    }
+  }
+  
+  if (!fpsValidation.valid) {
+    return {
+      success: false,
+      error: fpsValidation.error,
+      settings: getCameraSettings()
+    }
+  }
+  
   console.log('[photo]: Reloading camera with new settings...')
-  initCamera()
-  return getCameraSettings()
+  console.log(`[photo]: Resolution: ${photoWidth}x${photoHeight}, FPS: ${cameraFramerate}`)
+  
+  // Останавливаем старую камеру
+  if (camera) {
+    try {
+      camera.removeAllListeners()
+      // Пытаемся убить процесс, если это возможно
+      if (camera._readableState && camera._readableState.pipes) {
+        const pipes = camera._readableState.pipes
+        if (Array.isArray(pipes)) {
+          pipes.forEach(pipe => {
+            if (pipe && pipe.destroy) pipe.destroy()
+          })
+        }
+      }
+    } catch (err) {
+      console.log('[photo]: Error cleaning up old camera:', err.message)
+    }
+  }
+  
+  // Небольшая задержка перед перезапуском
+  setTimeout(() => {
+    try {
+      initCamera()
+      console.log('[photo]: Camera reloaded successfully')
+    } catch (err) {
+      console.log('[photo]: Failed to reload camera:', err.message)
+      cameraError = err
+    }
+  }, 500)
+  
+  return {
+    success: true,
+    settings: getCameraSettings(),
+    warnings: [
+      resolutionValidation.warning,
+      fpsValidation.warning
+    ].filter(Boolean)
+  }
 }
 
 const getPhotoList = () => {
@@ -189,5 +366,9 @@ module.exports = {
   updateCameraSettings, 
   reloadCamera,
   getPhotoList,
-  deleteAllPhotos
+  deleteAllPhotos,
+  getValidResolutions,
+  getValidFPS,
+  validateResolution,
+  validateFPS
 }

@@ -17,7 +17,9 @@ const {
   updateCameraSettings, 
   reloadCamera,
   getPhotoList,
-  deleteAllPhotos
+  deleteAllPhotos,
+  getValidResolutions,
+  getValidFPS
 } = require('./photo')
 require('./dashboard-make')
 
@@ -177,14 +179,18 @@ wss.on('connection', ws => {
   
   // Отправляем начальные настройки камеры
   const cameraSettings = getCameraSettings()
-  setDashboardState('cameraSettings', cameraSettings)
+  const resolutions = getValidResolutions()
+  const fps = getValidFPS()
+  setDashboardState('cameraSettings', { ...cameraSettings, validResolutions: resolutions, validFPS: fps })
 })
 wss.on('listening', () => {
   console.log('[dashboard]: ws online @ port ', 8081)
   
   // Инициализируем настройки камеры в состоянии
   const cameraSettings = getCameraSettings()
-  setDashboardState('cameraSettings', cameraSettings)
+  const resolutions = getValidResolutions()
+  const fps = getValidFPS()
+  setDashboardState('cameraSettings', { ...cameraSettings, validResolutions: resolutions, validFPS: fps })
 })
 
 class Dashboard extends EventEmitter {

@@ -143,9 +143,11 @@ const webSocketEngine = (ref, stateCb, openCb) => new Promise((disconnectCb) => 
       }
     } else if (name === 'info') {
       alert(payload);
+    } else if (name === 'warning') {
+      alert('Предупреждение: ' + payload);
     } else
     if (name === 'error') {
-      alert(payload);
+      alert('Ошибка: ' + payload);
     }
   });
   let pingIntervalId;
@@ -298,22 +300,35 @@ const App = () => {
     window.preact.h("h2", null, "Настройки камеры"),
     window.preact.h("div", { style: "display:flex;flex-direction:column;gap:0.5em;" },
     window.preact.h("label", null,
-    "Ширина:",
-    window.preact.h("input", { 
-      type: "number", 
-      value: cameraSettings.width || '', 
-      onChange: (e) => setCameraSettings({...cameraSettings, width: +e.target.value}),
+    "Разрешение:",
+    window.preact.h("select", { 
+      value: cameraSettings.width && cameraSettings.height ? cameraSettings.width + 'x' + cameraSettings.height : '',
+      onChange: (e) => {
+        const parts = e.target.value.split('x');
+        if (parts.length === 2) {
+          setCameraSettings({...cameraSettings, width: +parts[0], height: +parts[1]});
+        }
+      },
       style: "width:100%;"
-    })
+    },
+    window.preact.h("option", { value: "" }, "Выберите разрешение"),
+    (cameraSettings.validResolutions || []).map((res, i) =>
+      window.preact.h("option", { key: i, value: res.width + 'x' + res.height }, res.label)
+    )
+    )
     ),
     window.preact.h("label", null,
-    "Высота:",
-    window.preact.h("input", { 
-      type: "number", 
-      value: cameraSettings.height || '', 
-      onChange: (e) => setCameraSettings({...cameraSettings, height: +e.target.value}),
+    "FPS (частота кадров):",
+    window.preact.h("select", { 
+      value: cameraSettings.framerate || '',
+      onChange: (e) => setCameraSettings({...cameraSettings, framerate: +e.target.value}),
       style: "width:100%;"
-    })
+    },
+    window.preact.h("option", { value: "" }, "Выберите FPS"),
+    (cameraSettings.validFPS || []).map((fps, i) =>
+      window.preact.h("option", { key: i, value: fps }, fps + " FPS")
+    )
+    )
     ),
     window.preact.h("label", null,
     "EXIF ориентация:",

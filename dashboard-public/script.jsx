@@ -148,8 +148,11 @@ const webSocketEngine = (ref, stateCb, openCb) => new Promise(disconnectCb => {
     else if (name === 'info') {
       alert(payload)
     }
+    else if (name === 'warning') {
+      alert('Предупреждение: ' + payload)
+    }
     else if (name === 'error') {
-      alert(payload)
+      alert('Ошибка: ' + payload)
     }
   })
   let pingIntervalId

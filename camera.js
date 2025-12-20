@@ -39,14 +39,13 @@ function Libcameravid(options = {}, errorCb) {
 
 function LibcameravidJPEGStream(options = {}, errorCb) {
   const cameraTimeout = +(process.env.CAMERA_TIMEOUT || 0)
-  const cameraFramerate = +(process.env.CAMERA_FRAMERATE || 10)
+  const defaultFramerate = +(process.env.CAMERA_FRAMERATE || 10)
   
   return Libcameravid({
     width: options.width || 640,
     height: options.height || 480,
     timeout: cameraTimeout,
-    framerate: cameraFramerate,
-    ...options,
+    framerate: options.framerate !== undefined ? options.framerate : defaultFramerate,
     codec: 'MJPEG',
   }, errorCb).pipe(new SplitFrames({
     startWith: JPEG_START,
