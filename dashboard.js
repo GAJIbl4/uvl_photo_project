@@ -82,14 +82,18 @@ const setDashboardState = (...args) => {
   sendDashboardStateToAll()
 }
 
-const wss = new WebSocketServer({ port: 8081 })
+const wss = new WebSocketServer({ 
+  port: 8081,
+  maxPayload: 100 * 1024 * 1024 // 100MB лимит для больших архивов
+})
 wss.on('connection', ws => {
   ws.on('error', console.error)
   const close = () => ws.close()
   let closeTimeout
   ws.on('message', (data, isBinary) => {
     clearTimeout(closeTimeout)
-    closeTimeout = setTimeout(close, 60 * 1000)
+    // Увеличиваем таймаут для операций с архивом
+    closeTimeout = setTimeout(close, 5 * 60 * 1000) // 5 минут вместо 1 минуты
     if (!isBinary)
       data = data.toString('utf-8')
     const sepIndex = data.indexOf(':')
@@ -154,13 +158,58 @@ wss.on('connection', ws => {
         archive.on('end', () => {
           const buffer = Buffer.concat(chunks)
           const base64 = buffer.toString('base64')
-          console.log(`[dashboard]: Archive created, size: ${buffer.length} bytes`)
-          ws.send(`archiveProgress:100:Архив готов`)
-          // Небольшая задержка перед отправкой архива, чтобы прогресс успел обновиться
-          setTimeout(() => {
-            ws.send(`photosArchive:${base64}`)
-            ws.send(`archiveProgress:0:`) // Сбрасываем прогресс
-          }, 200)
+          console.log(`[dashboard]: Archive created, size: ${buffer.length} bytes, base64 length: ${base64.length}`)
+          
+          // Проверяем, что WebSocket все еще открыт
+          if (ws.readyState !== 1) { // 1 = OPEN
+            console.error('[dashboard]: WebSocket is not open, cannot send archive. State:', ws.readyState)
+            return
+          }
+          
+          // Сбрасываем таймаут закрытия перед отправкой большого архива
+          clearTimeout(closeTimeout)
+          closeTimeout = setTimeout(close, 5 * 60 * 1000) // 5 минут для больших операций
+          
+          ws.send(`archiveProgress:100:Отправка архива...`)
+          
+          // Отправляем архив сразу, без задержки
+          try {
+            // Отправляем архив с callback для проверки успешности
+            const message = `photosArchive:${base64}`
+            console.log(`[dashboard]: Sending archive, message length: ${message.length}, base64 length: ${base64.length}`)
+            
+            // Используем синхронную отправку, но проверяем готовность
+            if (ws.readyState === 1) {
+              // Отправляем архив
+              try {
+                ws.send(message)
+                console.log(`[dashboard]: Archive send called successfully, readyState: ${ws.readyState}, message length: ${message.length}`)
+                
+                // Сбрасываем прогресс после небольшой задержки
+                setTimeout(() => {
+                  if (ws.readyState === 1) {
+                    ws.send(`archiveProgress:0:`)
+                  }
+                }, 500)
+              } catch (sendErr) {
+                console.error('[dashboard]: Exception during send:', sendErr)
+                if (ws.readyState === 1) {
+                  ws.send(`archiveProgress:0:`)
+                  ws.send(`error:Ошибка при отправке архива: ${sendErr.message}`)
+                }
+              }
+            } else {
+              console.error('[dashboard]: WebSocket closed before sending archive, state:', ws.readyState)
+              ws.send(`archiveProgress:0:`)
+              ws.send(`error:Соединение закрыто перед отправкой архива`)
+            }
+          } catch (err) {
+            console.error('[dashboard]: Failed to send archive:', err)
+            if (ws.readyState === 1) {
+              ws.send(`archiveProgress:0:`)
+              ws.send(`error:Не удалось отправить архив: ${err.message}`)
+            }
+          }
         })
         
         archive.on('error', err => {
@@ -176,7 +225,9 @@ wss.on('connection', ws => {
               processedPhotos++
               // Отправляем прогресс по количеству файлов
               const progress = Math.floor((processedPhotos / photos.length) * 10) // Первые 10% на добавление файлов
-              ws.send(`archiveProgress:${progress}:Добавление файлов... (${processedPhotos}/${photos.length})`)
+              if (ws.readyState === 1) { // 1 = OPEN
+                ws.send(`archiveProgress:${progress}:Добавление файлов... (${processedPhotos}/${photos.length})`)
+              }
             } else {
               console.warn(`[dashboard]: Photo file not found: ${photo.path}`)
             }
