@@ -167,19 +167,17 @@ const webSocketEngine = (ref, stateCb, openCb) => new Promise((disconnectCb) => 
   });
 });
 
-const { useState, useEffect, useRef, useMemo } = window;
-
 const App = () => {
-  const [state, setState] = useState({});
-  const [connectionState, setConnectionState] = useState({});
-  const [shieldMessage, setShieldMessage] = useState('');
-  const [cameraSettings, setCameraSettings] = useState({});
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const hardDisconnected = useRef(true);
-  const wsRef = useRef(null);
+  const [state, setState] = window.useState({});
+  const [connectionState, setConnectionState] = window.useState({});
+  const [shieldMessage, setShieldMessage] = window.useState('');
+  const [cameraSettings, setCameraSettings] = window.useState({});
+  const [showDeleteConfirm, setShowDeleteConfirm] = window.useState(false);
+  const hardDisconnected = window.useRef(true);
+  const wsRef = window.useRef(null);
   const sendIfConnected = (...args) => wsRef.current?.send?.(...args);
 
-  useEffect(async () => {
+  window.useEffect(async () => {
     while (true) {
       setConnectionState('connecting');
       await webSocketEngine(wsRef, setState, (socket) => {
@@ -194,9 +192,9 @@ const App = () => {
     }
   }, []);
 
-  useEffect(() => window.ipcRenderer?.on?.('message', (evt, v) => setShieldMessage(v)), []);
+  window.useEffect(() => window.ipcRenderer?.on?.('message', (evt, v) => setShieldMessage(v)), []);
 
-  useEffect(() => {
+  window.useEffect(() => {
     if (hardDisconnected.current) {
       if (connectionState === 'connected') {
         beep('connected.wav');
@@ -207,23 +205,23 @@ const App = () => {
     }
   }, [connectionState]);
 
-  useEffect(() => {
+  window.useEffect(() => {
     if (state.cameraSettings) {
       setCameraSettings(state.cameraSettings);
     }
   }, [state.cameraSettings]);
 
-  useEffect(() => {
+  window.useEffect(() => {
     if (state.lastPhoto?.path && connectionState === 'connected') {
       sendIfConnected('getLastPhoto');
     }
   }, [state.lastPhoto?.id, connectionState]);
 
-  const logsHtml = useMemo(() => (state.logs || []).map(htmlAnsify), [state.logs]);
+  const logsHtml = window.useMemo(() => (state.logs || []).map(htmlAnsify), [state.logs]);
 
-  const [hideDev, setHideDev] = useState(true);
+  const [hideDev, setHideDev] = window.useState(true);
 
-  useEffect(() => {
+  window.useEffect(() => {
     document.addEventListener('keydown', (event) => {
       if (event.ctrlKey && event.code == 'KeyD') {
         event.stopPropagation();
@@ -385,9 +383,9 @@ const Shield = ({ progress = false, logo = false, message = undefined }) => {
 };
 
 const AutoScroll = ({ as: As = 'div', ...props }) => {
-  const asRef = useRef(null);
+  const asRef = window.useRef(null);
   const ref = asRef.current;
-  useEffect(() => {
+  window.useEffect(() => {
     if (!ref) return;
     const { fontSize } = getComputedStyle(ref);
     const padding = fontSize.replace('px', '') * 2;
@@ -403,7 +401,7 @@ waitLoadAll(Object.values(sounds)).then(() => {
     console.error('Preact is not loaded');
     return;
   }
-  if (typeof useState === 'undefined') {
+  if (typeof window.useState === 'undefined') {
     console.error('Preact hooks are not loaded');
     return;
   }
