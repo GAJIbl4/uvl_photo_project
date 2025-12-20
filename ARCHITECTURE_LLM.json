@@ -217,13 +217,15 @@
         "type": "module",
         "purpose": "Управление камерой и съёмка фотографий",
         "key_functions": {
-          "takePhoto": "Съёмка фотографии с применением EXIF поворота. Принимает id и callback, возвращает JPEG данные или ошибку"
+          "takePhoto": "Съёмка фотографии с применением EXIF поворота. Принимает id и callback, возвращает JPEG данные или ошибку. Если включено сохранение (PHOTO_SAVE_ENABLED=true), сохраняет фотографию на диск в директорию PHOTO_SAVE_DIR"
         },
         "dependencies": ["camera.js", "piexifjs"],
         "key_variables": {
           "photoWidth": "Ширина фотографии из PHOTO_WIDTH",
           "photoHeight": "Высота фотографии из PHOTO_HEIGHT",
-          "photoExifOrientation": "Ориентация EXIF из PHOTO_EXIF_ORIENTATION"
+          "photoExifOrientation": "Ориентация EXIF из PHOTO_EXIF_ORIENTATION",
+          "photoSaveEnabled": "Флаг включения сохранения на диск из PHOTO_SAVE_ENABLED",
+          "photoSaveDir": "Директория для сохранения фотографий из PHOTO_SAVE_DIR"
         }
       },
       {
@@ -358,6 +360,7 @@
         "takePhoto(photoId, callback)",
         "camera.once('data')",
         "exifRotate()",
+        "Если PHOTO_SAVE_ENABLED=true: writeFileSync() в PHOTO_SAVE_DIR",
         "showInfoMessage() / dashboard.setState('lastPhoto')"
       ]
     },
@@ -491,6 +494,14 @@
       "CAMERA_FRAMERATE": {
         "default": "10",
         "description": "Частота кадров камеры"
+      },
+      "PHOTO_SAVE_ENABLED": {
+        "default": "false",
+        "description": "Включить сохранение фотографий на диск"
+      },
+      "PHOTO_SAVE_DIR": {
+        "default": "./photos",
+        "description": "Директория для сохранения фотографий (создаётся автоматически, если не существует)"
       }
     },
     "realsense": {

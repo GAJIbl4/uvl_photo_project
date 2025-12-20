@@ -1,13 +1,26 @@
 'use strict'
 
 const { LibcameravidJPEGStream } = require('./camera')
-const { writeFileSync } = require('node:fs')
+const { writeFileSync, mkdirSync } = require('node:fs')
+const { join } = require('node:path')
 const piexifjs = require('piexifjs')
 
 const photoWidth = +(process.env.PHOTO_WIDTH || 2028)
 const photoHeight = +(process.env.PHOTO_HEIGHT || 1520)
 const photoExifOrientation = +(process.env.PHOTO_EXIF_ORIENTATION || 6)
 // for rotation values see http://www.cipa.jp/std/documents/e/DC-008-2012_E.pdf
+
+const photoSaveEnabled = process.env.PHOTO_SAVE_ENABLED === 'true'
+const photoSaveDir = process.env.PHOTO_SAVE_DIR || './photos'
+
+// Создаём директорию для сохранения фотографий, если включено сохранение
+if (photoSaveEnabled) {
+  try {
+    mkdirSync(photoSaveDir, { recursive: true })
+  } catch (err) {
+    console.log('[photo]: Failed to create photo directory:', err.message)
+  }
+}
 
 let cameraError = false
 
@@ -35,8 +48,21 @@ let takePhoto = (id, callback) => {
   }
   const on_photo = data => {
     try {
-      //writeFileSync(name, data)
-      callback?.(id, exifRotate(data, photoExifOrientation))
+      const rotatedData = exifRotate(data, photoExifOrientation)
+      
+      // Сохранение на диск, если включено
+      if (photoSaveEnabled) {
+        try {
+          const filename = `${id}.jpg`
+          const filepath = join(photoSaveDir, filename)
+          writeFileSync(filepath, rotatedData)
+          console.log(`[photo]: Saved to ${filepath}`)
+        } catch (err) {
+          console.log(`[photo]: Failed to save file ${id}:`, err.message)
+        }
+      }
+      
+      callback?.(id, rotatedData)
     } catch (err) {
       console.log('failed saving', id)
       console.log(err)

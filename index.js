@@ -237,10 +237,18 @@ mavSystem.on('rc_channels', msg => {
       if (data instanceof Error) {
         showInfoMessage(data.message)
       } else {
-        showInfoMessage(`Photo saved: ${id}`, 2000)
-        dashboard.setState('lastPhoto', { id, timestamp: Date.now() })
-        // Optionally save photo to file or send via protocol if needed
-        // protocol.send('photo', { id }, data)
+        const photoSaveEnabled = process.env.PHOTO_SAVE_ENABLED === 'true'
+        const photoSaveDir = process.env.PHOTO_SAVE_DIR || './photos'
+        const message = photoSaveEnabled 
+          ? `Photo saved: ${id}.jpg` 
+          : `Photo captured: ${id}`
+        showInfoMessage(message, 2000)
+        dashboard.setState('lastPhoto', { 
+          id, 
+          timestamp: Date.now(),
+          saved: photoSaveEnabled,
+          path: photoSaveEnabled ? `${photoSaveDir}/${id}.jpg` : null
+        })
       }
     })
   })
