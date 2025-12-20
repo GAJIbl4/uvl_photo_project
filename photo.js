@@ -3,17 +3,36 @@
 const { LibcameravidJPEGStream } = require('./camera')
 const { writeFileSync, mkdirSync, readdirSync, unlinkSync, statSync, existsSync, readFileSync } = require('node:fs')
 const { join } = require('node:path')
+const CONFIG_FILE = join(process.cwd(), 'camera-config.json')
 const piexifjs = require('piexifjs')
 const { execSync, spawn } = require('child_process')
 
-let photoWidth = +(process.env.PHOTO_WIDTH || 2028)
-let photoHeight = +(process.env.PHOTO_HEIGHT || 1520)
-let photoExifOrientation = +(process.env.PHOTO_EXIF_ORIENTATION || 6)
-// for rotation values see http://www.cipa.jp/std/documents/e/DC-008-2012_E.pdf
+// Значения по умолчанию
+const DEFAULT_CONFIG = {
+  photoWidth: 2028,
+  photoHeight: 1520,
+  photoExifOrientation: 6, // for rotation values see http://www.cipa.jp/std/documents/e/DC-008-2012_E.pdf
+  photoSaveEnabled: false,
+  photoSaveDir: './photos',
+  cameraFramerate: 10,
+  cameraShutter: 0,
+  cameraGain: 0,
+  cameraExposure: 'normal',
+  cameraMetering: 'centre',
+  cameraAwb: 'auto',
+  cameraBrightness: 0,
+  cameraContrast: 1.0,
+  cameraSaturation: 1.0,
+  cameraSharpness: 1.0
+}
 
-let photoSaveEnabled = process.env.PHOTO_SAVE_ENABLED === 'true'
-let photoSaveDir = process.env.PHOTO_SAVE_DIR || './photos'
-let cameraFramerate = +(process.env.CAMERA_FRAMERATE || 10)
+// Загружаем настройки из config файла или используем значения по умолчанию
+let photoWidth = DEFAULT_CONFIG.photoWidth
+let photoHeight = DEFAULT_CONFIG.photoHeight
+let photoExifOrientation = DEFAULT_CONFIG.photoExifOrientation
+let photoSaveEnabled = DEFAULT_CONFIG.photoSaveEnabled
+let photoSaveDir = DEFAULT_CONFIG.photoSaveDir
+let cameraFramerate = DEFAULT_CONFIG.cameraFramerate
 
 // Режимы камеры Raspberry Pi HQ Mini (комбинации разрешения и FPS)
 // Эти режимы предустановлены производителем и гарантированно работают
@@ -31,15 +50,15 @@ const CAMERA_MODES = [
 ]
 
 // Настройки экспозиции и фотографирования
-let cameraShutter = +(process.env.CAMERA_SHUTTER || 0) // Выдержка в микросекундах (0 = автоматическая)
-let cameraGain = +(process.env.CAMERA_GAIN || 0) // Усиление (gain) (0 = автоматическая)
-let cameraExposure = process.env.CAMERA_EXPOSURE || 'normal' // normal, short, long
-let cameraMetering = process.env.CAMERA_METERING || 'centre' // centre, spot, matrix, custom
-let cameraAwb = process.env.CAMERA_AWB || 'auto' // auto, incandescent, tungsten, fluorescent, indoor, daylight, cloudy, custom
-let cameraBrightness = +(process.env.CAMERA_BRIGHTNESS || 0) // Яркость (-1.0 до 1.0)
-let cameraContrast = +(process.env.CAMERA_CONTRAST || 1.0) // Контраст (0.0 до 2.0)
-let cameraSaturation = +(process.env.CAMERA_SATURATION || 1.0) // Насыщенность (0.0 до 2.0)
-let cameraSharpness = +(process.env.CAMERA_SHARPNESS || 1.0) // Резкость (0.0 до 2.0)
+let cameraShutter = DEFAULT_CONFIG.cameraShutter // Выдержка в микросекундах (0 = автоматическая)
+let cameraGain = DEFAULT_CONFIG.cameraGain // Усиление (gain) (0 = автоматическая)
+let cameraExposure = DEFAULT_CONFIG.cameraExposure // normal, short, long
+let cameraMetering = DEFAULT_CONFIG.cameraMetering // centre, spot, matrix, custom
+let cameraAwb = DEFAULT_CONFIG.cameraAwb // auto, incandescent, tungsten, fluorescent, indoor, daylight, cloudy, custom
+let cameraBrightness = DEFAULT_CONFIG.cameraBrightness // Яркость (-1.0 до 1.0)
+let cameraContrast = DEFAULT_CONFIG.cameraContrast // Контраст (0.0 до 2.0)
+let cameraSaturation = DEFAULT_CONFIG.cameraSaturation // Насыщенность (0.0 до 2.0)
+let cameraSharpness = DEFAULT_CONFIG.cameraSharpness // Резкость (0.0 до 2.0)
 
 // Допустимые значения для настроек
 const EXPOSURE_MODES = ['normal', 'short', 'long']
@@ -136,8 +155,8 @@ const initCamera = async () => {
   cameraError = false
   
   camera = new LibcameravidJPEGStream({
-    width: photoWidth,
-    height: photoHeight,
+  width: photoWidth,
+  height: photoHeight,
     framerate: cameraFramerate,
     shutter: cameraShutter || undefined,
     gain: cameraGain || undefined,
@@ -158,8 +177,8 @@ const initCamera = async () => {
       }
     }
   })
-  
-  camera.once?.('data', data => null)
+
+camera.once?.('data', data => null)
   
   // Проверяем ошибку через небольшую задержку
   setTimeout(() => {
@@ -168,6 +187,9 @@ const initCamera = async () => {
     }
   }, 1000)
 }
+
+// Загружаем настройки при загрузке модуля
+loadCameraConfig()
 
 // Инициализируем камеру при загрузке модуля (асинхронно, чтобы не блокировать)
 setTimeout(() => {
@@ -411,11 +433,14 @@ const updateCameraSettings = (settings) => {
   process.env.CAMERA_SATURATION = String(cameraSaturation)
   process.env.CAMERA_SHARPNESS = String(cameraSharpness)
   
-  // Сохраняем настройки в .env файл
+  // Сохраняем настройки в config файл
   try {
-    saveSettingsToEnv()
+    saveCameraConfig()
   } catch (err) {
-    warnings.push(`Не удалось сохранить настройки в .env файл: ${err.message}`)
+    // Ошибка записи в config не критична - настройки уже сохранены в памяти и будут работать
+    // Добавляем предупреждение, но не блокируем успешное сохранение
+    warnings.push(`Не удалось сохранить настройки в config файл: ${err.message}. Настройки сохранены в памяти и будут действовать до перезапуска.`)
+    console.log(`[photo]: Warning - cannot save config: ${err.message}`)
   }
   
   // Создаём директорию, если включено сохранение
@@ -436,74 +461,65 @@ const updateCameraSettings = (settings) => {
   }
 }
 
-// Сохранение настроек в .env файл
-const saveSettingsToEnv = () => {
-  const envPath = join(process.cwd(), '.env')
-  let envContent = ''
-  
-  // Читаем существующий .env файл, если он есть
-  if (existsSync(envPath)) {
-    envContent = readFileSync(envPath, 'utf8')
+// Загрузка настроек из config файла
+const loadCameraConfig = () => {
+  try {
+    if (existsSync(CONFIG_FILE)) {
+      const configContent = readFileSync(CONFIG_FILE, 'utf8')
+      const config = JSON.parse(configContent)
+      
+      // Загружаем настройки, используя значения по умолчанию для отсутствующих
+      photoWidth = config.photoWidth !== undefined ? +config.photoWidth : DEFAULT_CONFIG.photoWidth
+      photoHeight = config.photoHeight !== undefined ? +config.photoHeight : DEFAULT_CONFIG.photoHeight
+      photoExifOrientation = config.photoExifOrientation !== undefined ? +config.photoExifOrientation : DEFAULT_CONFIG.photoExifOrientation
+      photoSaveEnabled = config.photoSaveEnabled !== undefined ? config.photoSaveEnabled : DEFAULT_CONFIG.photoSaveEnabled
+      photoSaveDir = config.photoSaveDir || DEFAULT_CONFIG.photoSaveDir
+      cameraFramerate = config.cameraFramerate !== undefined ? +config.cameraFramerate : DEFAULT_CONFIG.cameraFramerate
+      cameraShutter = config.cameraShutter !== undefined ? +config.cameraShutter : DEFAULT_CONFIG.cameraShutter
+      cameraGain = config.cameraGain !== undefined ? +config.cameraGain : DEFAULT_CONFIG.cameraGain
+      cameraExposure = config.cameraExposure || DEFAULT_CONFIG.cameraExposure
+      cameraMetering = config.cameraMetering || DEFAULT_CONFIG.cameraMetering
+      cameraAwb = config.cameraAwb || DEFAULT_CONFIG.cameraAwb
+      cameraBrightness = config.cameraBrightness !== undefined ? +config.cameraBrightness : DEFAULT_CONFIG.cameraBrightness
+      cameraContrast = config.cameraContrast !== undefined ? +config.cameraContrast : DEFAULT_CONFIG.cameraContrast
+      cameraSaturation = config.cameraSaturation !== undefined ? +config.cameraSaturation : DEFAULT_CONFIG.cameraSaturation
+      cameraSharpness = config.cameraSharpness !== undefined ? +config.cameraSharpness : DEFAULT_CONFIG.cameraSharpness
+      
+      console.log('[photo]: Camera config loaded from', CONFIG_FILE)
+    } else {
+      console.log('[photo]: Camera config file not found, using defaults')
+    }
+  } catch (err) {
+    console.log(`[photo]: Failed to load camera config: ${err.message}, using defaults`)
+  }
+}
+
+// Сохранение настроек в config файл
+const saveCameraConfig = () => {
+  const config = {
+    photoWidth,
+    photoHeight,
+    photoExifOrientation,
+    photoSaveEnabled,
+    photoSaveDir,
+    cameraFramerate,
+    cameraShutter,
+    cameraGain,
+    cameraExposure,
+    cameraMetering,
+    cameraAwb,
+    cameraBrightness,
+    cameraContrast,
+    cameraSaturation,
+    cameraSharpness
   }
   
-  // Обновляем или добавляем настройки камеры
-  const cameraSettings = {
-    'PHOTO_WIDTH': String(photoWidth),
-    'PHOTO_HEIGHT': String(photoHeight),
-    'PHOTO_EXIF_ORIENTATION': String(photoExifOrientation),
-    'PHOTO_SAVE_ENABLED': String(photoSaveEnabled),
-    'PHOTO_SAVE_DIR': photoSaveDir,
-    'CAMERA_FRAMERATE': String(cameraFramerate),
-    'CAMERA_SHUTTER': String(cameraShutter),
-    'CAMERA_GAIN': String(cameraGain),
-    'CAMERA_EXPOSURE': cameraExposure,
-    'CAMERA_METERING': cameraMetering,
-    'CAMERA_AWB': cameraAwb,
-    'CAMERA_BRIGHTNESS': String(cameraBrightness),
-    'CAMERA_CONTRAST': String(cameraContrast),
-    'CAMERA_SATURATION': String(cameraSaturation),
-    'CAMERA_SHARPNESS': String(cameraSharpness)
+  try {
+    writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8')
+    console.log('[photo]: Camera config saved to', CONFIG_FILE)
+  } catch (err) {
+    throw new Error(`Не удалось записать в config файл (${err.code || 'UNKNOWN'}): ${err.message}`)
   }
-  
-  // Разбиваем на строки и обновляем нужные
-  const lines = envContent.split('\n')
-  const updatedLines = []
-  const updatedKeys = new Set()
-  
-  for (const line of lines) {
-    const trimmed = line.trim()
-    // Пропускаем пустые строки и комментарии
-    if (!trimmed || trimmed.startsWith('#')) {
-      updatedLines.push(line)
-      continue
-    }
-    
-    // Проверяем, есть ли в строке настройка камеры
-    let found = false
-    for (const [key, value] of Object.entries(cameraSettings)) {
-      if (trimmed.startsWith(key + '=')) {
-        updatedLines.push(`${key}=${value}`)
-        updatedKeys.add(key)
-        found = true
-        break
-      }
-    }
-    
-    if (!found) {
-      updatedLines.push(line)
-    }
-  }
-  
-  // Добавляем настройки, которых не было в файле
-  for (const [key, value] of Object.entries(cameraSettings)) {
-    if (!updatedKeys.has(key)) {
-      updatedLines.push(`${key}=${value}`)
-    }
-  }
-  
-  // Сохраняем обратно
-  writeFileSync(envPath, updatedLines.join('\n') + '\n', 'utf8')
-  console.log('[photo]: Settings saved to .env file')
 }
 
 const reloadCamera = () => {
