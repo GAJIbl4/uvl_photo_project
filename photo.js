@@ -243,10 +243,20 @@ let takePhoto = (id, callback) => {
 const getCameraSettings = () => ({
   width: photoWidth,
   height: photoHeight,
+  mode: `${photoWidth}x${photoHeight}@${cameraFramerate}fps`,
   exifOrientation: photoExifOrientation,
   saveEnabled: photoSaveEnabled,
   saveDir: photoSaveDir,
-  framerate: cameraFramerate
+  framerate: cameraFramerate,
+  shutter: cameraShutter,
+  gain: cameraGain,
+  exposure: cameraExposure,
+  metering: cameraMetering,
+  awb: cameraAwb,
+  brightness: cameraBrightness,
+  contrast: cameraContrast,
+  saturation: cameraSaturation,
+  sharpness: cameraSharpness
 })
 
 const getCameraModes = () => CAMERA_MODES
@@ -448,6 +458,29 @@ const updateCameraSettings = (settings) => {
       errors.push(`Не удалось создать директорию: ${err.message}`)
       return { success: false, errors, warnings, settings: getCameraSettings() }
     }
+  }
+  
+  // Автоматически перезагружаем камеру, если изменились настройки, требующие перезагрузки
+  // Это нужно для применения новых настроек к следующей фотографии
+  const needsReload = settings.width !== undefined || 
+                      settings.height !== undefined || 
+                      settings.framerate !== undefined ||
+                      settings.mode !== undefined ||
+                      settings.shutter !== undefined ||
+                      settings.gain !== undefined ||
+                      settings.exposure !== undefined ||
+                      settings.metering !== undefined ||
+                      settings.awb !== undefined ||
+                      settings.brightness !== undefined ||
+                      settings.contrast !== undefined ||
+                      settings.saturation !== undefined ||
+                      settings.sharpness !== undefined
+  
+  if (needsReload && camera) {
+    // Перезагружаем камеру асинхронно, не блокируя ответ
+    reloadCamera().catch(err => {
+      console.log('[photo]: Auto-reload failed after settings update:', err.message)
+    })
   }
   
   return { 

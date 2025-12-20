@@ -192,9 +192,8 @@ wss.on('connection', ws => {
           setDashboardState('cameraSettings', settingsWithModes)
           if (result.warnings && result.warnings.length > 0) {
             ws.send(`warning:${result.warnings.join('; ')}`)
-          } else {
-            ws.send(`info:Настройки сохранены успешно`)
           }
+          // Уведомление об успешном сохранении убрано - настройки применяются автоматически
         } else {
           ws.send(`error:${result.errors.join('; ')}`)
           ws.send(`cameraSettings:${JSON.stringify(settingsWithModes)}`)
