@@ -40,6 +40,14 @@ setInterval(() => {
   if (ip !== droneIp) {
     droneIp = ip
     console.log('[drone]: ip changed', ip)
+    if (ip) {
+      dashboard.setState('droneIp', ip)
+      if (mavlinkUdpEn) {
+        console.log(`[mavlink-udp]: Для подключения через Mission Planner используйте: ${ip}:${mavlinkUdpPort}`)
+      }
+    } else {
+      dashboard.setState('droneIp', null)
+    }
   }
 }, 1000)
 
@@ -67,7 +75,7 @@ const rcEmptyCh = +(process.env.RC_EMPTY_CH || 6)
 const rcRescanCh = +(process.env.RC_RESCAN_CH || 6)
 const rcNoTagCh = +(process.env.RC_NO_TAG_CH || 6)
 const rcUnreadableCh = +(process.env.RC_UNREADABLE_CH || 6)
-const rcPhotoCh = +(process.env.RC_PHOTO_CH || 7)
+const rcPhotoCh = +(process.env.RC_PHOTO_CH || 6)
 const rcScanoffCh = +(process.env.RC_SCANOFF_CH || 8)
 const rcAlleySwitchCh = +(process.env.RC_ALLEY_SWITCH_CH || 9)
 
@@ -279,19 +287,36 @@ mavSystem.on('heartbeat', () => {
 mavlinkHeartbitTimeoutStart()
 
 let rcChannelsArdupilotFixInterval = null
-if (mavlinkUdpEn) connect(
-  mavSystem.connect('mavlink-udp'),
-  udp(
-    mavlinkUdpHost,
-    mavlinkUdpPort,
-    (v, twoWay) => {
-      console.log('[mavlink-udp]:', v)
-      if (twoWay && !rcChannelsArdupilotFixInterval)
-        rcChannelsArdupilotFixInterval = setInterval(
-          () => mavSystem.setMessageInterval('RC_CHANNELS', 10).catch(() => { }), 1000)
-    }
+if (mavlinkUdpEn) {
+  console.log(`[mavlink-udp]: Запуск UDP сервера на ${mavlinkUdpHost}:${mavlinkUdpPort}`)
+  connect(
+    mavSystem.connect('mavlink-udp'),
+    udp(
+      mavlinkUdpHost,
+      mavlinkUdpPort,
+      (v, twoWay) => {
+        console.log('[mavlink-udp]:', v)
+        if (twoWay) {
+          const clientIp = v.split(' > ')[1]?.split(':')[0]
+          if (clientIp && clientIp !== 'unknown') {
+            console.log(`[mavlink-udp]: Подключен клиент ${clientIp}, двусторонняя связь установлена`)
+            dashboard.setState('mavlinkUdpConnected', true)
+            dashboard.setState('mavlinkUdpClientIp', clientIp)
+          }
+          if (!rcChannelsArdupilotFixInterval)
+            rcChannelsArdupilotFixInterval = setInterval(
+              () => mavSystem.setMessageInterval('RC_CHANNELS', 10).catch(() => { }), 1000)
+        } else {
+          dashboard.setState('mavlinkUdpConnected', false)
+          dashboard.setState('mavlinkUdpClientIp', null)
+        }
+      }
+    )
   )
-)
+} else {
+  console.log('[mavlink-udp]: UDP отключен (MAVLINK_UDP_EN не установлен в true)')
+  console.log('[mavlink-udp]: Для подключения через Mission Planner установите MAVLINK_UDP_EN=true в .env')
+}
 
 if (realsensepyEn) connect(
   mavSystem.connect('odom-udp'),
