@@ -37,6 +37,7 @@ sudo ./tools/setup-dns.sh
 - Установит и настроит avahi-daemon
 - Изменит hostname на `uvl-photo`
 - Настроит mDNS для домена `uvl-photo.local`
+- Установит и настроит nginx как reverse proxy на порту 80
 - Добавит переменную `DASHBOARD_HOSTNAME=uvl-photo.local` в `.env`
 - Перезапустит необходимые сервисы
 
@@ -45,7 +46,7 @@ sudo ./tools/setup-dns.sh
 sudo systemctl restart offboard
 ```
 
-Dashboard будет доступен по адресу: `http://uvl-photo.local:8080`
+Dashboard будет доступен по адресу: `http://uvl-photo.local` (без указания порта, nginx проксирует на порт 8080)
 
 ## Варианты настройки
 

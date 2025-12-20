@@ -50,6 +50,8 @@ RC_PHOTO_PWM=2006
 
 ### 4. Запуск системы
 
+#### Вариант A: Ручной запуск
+
 ```bash
 node index.js
 ```
@@ -59,6 +61,27 @@ node index.js
 ```bash
 ./index.js
 ```
+
+#### Вариант B: Установка как systemd сервис (автозапуск при старте системы)
+
+Для автоматического запуска при старте Raspberry Pi:
+
+```bash
+sudo bash systemd/install-uvl-photo-service.sh
+```
+
+После установки сервис будет автоматически запускаться при загрузке системы.
+
+**Управление сервисом:**
+```bash
+sudo systemctl start uvl-photo.service    # Запустить
+sudo systemctl stop uvl-photo.service     # Остановить
+sudo systemctl restart uvl-photo.service  # Перезапустить
+sudo systemctl status uvl-photo.service   # Статус
+sudo journalctl -u uvl-photo.service -f  # Логи в реальном времени
+```
+
+Подробная документация: [systemd/README.md](systemd/README.md)
 
 ## Настройка RC каналов
 
@@ -110,7 +133,7 @@ sudo npm run setup-dns
 sudo ./tools/setup-dns.sh
 ```
 
-После настройки dashboard будет доступен по адресу: `http://uvl-photo.local:8080`
+После настройки dashboard будет доступен по адресу: `http://uvl-photo.local` (без указания порта)
 
 Подробная документация: [docs/ru/dashboard-url.md](docs/ru/dashboard-url.md)
 

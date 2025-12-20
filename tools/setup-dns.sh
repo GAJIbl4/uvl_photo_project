@@ -107,7 +107,92 @@ echo "   Перезапуск avahi-daemon..."
 systemctl restart avahi-daemon
 
 echo ""
-echo "4. Настройка переменной окружения DASHBOARD_HOSTNAME..."
+echo "4. Установка и настройка nginx..."
+
+# Установка nginx
+if ! command -v nginx &> /dev/null; then
+    echo "   Установка nginx..."
+    apt-get update
+    apt-get install -y nginx
+else
+    echo "   nginx уже установлен"
+fi
+
+# Создание конфигурации nginx для dashboard
+NGINX_CONF="/etc/nginx/sites-available/uvl-photo-dashboard"
+NGINX_ENABLED="/etc/nginx/sites-enabled/uvl-photo-dashboard"
+
+echo "   Создание конфигурации nginx..."
+
+# Создаем конфигурацию nginx
+cat > "$NGINX_CONF" <<'NGINX_EOF'
+server {
+    listen 80;
+    server_name uvl-photo.local;
+
+    # Логи
+    access_log /var/log/nginx/uvl-photo-dashboard-access.log;
+    error_log /var/log/nginx/uvl-photo-dashboard-error.log;
+
+    # Проксирование статических файлов на порт 8080
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+        
+        # Таймауты для WebSocket
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+    }
+
+    # Проксирование WebSocket на порт 8081
+    location /ws {
+        proxy_pass http://127.0.0.1:8081;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Таймауты для WebSocket
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+    }
+}
+NGINX_EOF
+
+# Создаем симлинк в sites-enabled
+if [ -L "$NGINX_ENABLED" ]; then
+    echo "   Конфигурация nginx уже включена"
+else
+    echo "   Включение конфигурации nginx..."
+    ln -s "$NGINX_CONF" "$NGINX_ENABLED"
+fi
+
+# Проверяем конфигурацию nginx
+echo "   Проверка конфигурации nginx..."
+if nginx -t 2>/dev/null; then
+    echo "   ✓ Конфигурация nginx корректна"
+    # Перезапускаем nginx
+    echo "   Перезапуск nginx..."
+    systemctl enable nginx
+    systemctl restart nginx
+    echo "   ✓ nginx настроен и запущен"
+else
+    echo "   ✗ Ошибка в конфигурации nginx"
+    echo "   Проверьте конфигурацию: nginx -t"
+fi
+
+echo ""
+echo "5. Настройка переменной окружения DASHBOARD_HOSTNAME..."
 
 # Проверяем существование .env файла
 if [ ! -f "$ENV_FILE" ]; then
@@ -127,7 +212,7 @@ else
 fi
 
 echo ""
-echo "5. Проверка настройки..."
+echo "6. Проверка настройки..."
 
 # Проверка hostname
 CURRENT_HOSTNAME=$(hostname)
@@ -151,13 +236,22 @@ else
     echo "   ✗ Ошибка: DASHBOARD_HOSTNAME не установлен в $ENV_FILE"
 fi
 
+# Проверка nginx
+if systemctl is-active --quiet nginx; then
+    echo "   ✓ nginx запущен"
+else
+    echo "   ✗ Ошибка: nginx не запущен"
+fi
+
 echo ""
 echo "=========================================="
 echo "Настройка завершена!"
 echo "=========================================="
 echo ""
 echo "Dashboard будет доступен по адресу:"
-echo "  http://$DOMAIN:8080"
+echo "  http://$DOMAIN"
+echo ""
+echo "Примечание: nginx проксирует запросы на порт 8080 (HTTP) и 8081 (WebSocket)"
 echo ""
 echo "Для применения изменений перезапустите приложение:"
 echo "  sudo systemctl restart offboard"

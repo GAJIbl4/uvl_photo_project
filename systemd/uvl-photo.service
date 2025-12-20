@@ -1,0 +1,17 @@
+[Unit]
+Description=UVL Photo Project service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+ExecStart=/home/pi/uvl_photo_project/systemd/uvl-photo.service.sh
+TimeoutStopSec=10s
+Restart=always
+RestartSec=5s
+User=pi
+WorkingDirectory=/home/pi/uvl_photo_project
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
+

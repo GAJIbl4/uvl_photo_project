@@ -151,6 +151,10 @@
           "websocket": {
             "port": 8081,
             "purpose": "Двусторонняя связь с клиентами"
+          },
+          "nginx": {
+            "port": 80,
+            "purpose": "Reverse proxy для доступа к dashboard без указания порта. Настраивается автоматически скриптом setup-dns.sh. Проксирует HTTP на порт 8080 и WebSocket (/ws) на порт 8081"
           }
         },
         "key_methods": {
@@ -619,6 +623,42 @@
     "ui_elements": "Добавление новых UI элементов в ui.js",
     "protocol_topics": "Добавление новых топиков протокола в protocol.js",
     "mavlink_commands": "Добавление новых MAVLink команд в mavlink/system.js"
+  },
+  "deployment": {
+    "systemd_service": {
+      "name": "uvl-photo.service",
+      "description": "Systemd сервис для автозапуска index.js при старте системы",
+      "files": {
+        "service_file": "systemd/uvl-photo.service",
+        "wrapper_script": "systemd/uvl-photo.service.sh",
+        "install_script": "systemd/install-uvl-photo-service.sh"
+      },
+      "configuration": {
+        "user": "pi",
+        "working_directory": "/home/pi/uvl_photo_project",
+        "restart_policy": "always",
+        "restart_sec": "5s",
+        "timeout_stop_sec": "10s",
+        "wants": "network-online.target",
+        "after": "network-online.target"
+      },
+      "installation": {
+        "command": "sudo bash systemd/install-uvl-photo-service.sh",
+        "description": "Скрипт автоматически устанавливает сервис, делает скрипт-обертку исполняемым, копирует файл сервиса в /etc/systemd/system, перезагружает systemd и включает автозапуск"
+      },
+      "management_commands": {
+        "start": "sudo systemctl start uvl-photo.service",
+        "stop": "sudo systemctl stop uvl-photo.service",
+        "restart": "sudo systemctl restart uvl-photo.service",
+        "status": "sudo systemctl status uvl-photo.service",
+        "enable": "sudo systemctl enable uvl-photo.service",
+        "disable": "sudo systemctl disable uvl-photo.service",
+        "logs": "sudo journalctl -u uvl-photo.service -f"
+      },
+      "wrapper_script_behavior": {
+        "description": "Скрипт-обертка переходит в директорию проекта, загружает переменные окружения из .env файла и запускает node index.js"
+      }
+    }
   }
 }
 

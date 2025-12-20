@@ -97,7 +97,14 @@ const cx_flatten = (from, to = []) => {
 }
 
 const webSocketEngine = (ref, stateCb, openCb) => new Promise(disconnectCb => {
-  const socket = new WebSocket(`ws://${location.hostname}:8081`)
+  // Используем /ws путь через nginx proxy, если сайт на порту 80 (или без порта)
+  // Иначе используем прямой порт 8081
+  const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const isPort80 = !location.port || location.port === '80' || location.port === '443'
+  const wsUrl = isPort80 
+    ? `${wsProtocol}//${location.hostname}/ws`
+    : `ws://${location.hostname}:8081`
+  const socket = new WebSocket(wsUrl)
   const closeAndDisconnect = () => socket.close(1000, 'ping failed')
   let disconnectDetectTimeoutId
   socket.addEventListener('message', ({ data }) => {
