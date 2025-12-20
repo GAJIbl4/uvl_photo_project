@@ -122,30 +122,61 @@ wss.on('connection', ws => {
         }
         
         console.log(`[dashboard]: Creating archive with ${photos.length} photos`)
+        ws.send(`archiveProgress:0:Начинаем создание архива...`)
         
         const archive = archiver('zip', { zlib: { level: 9 } })
         const chunks = []
+        let totalSize = 0
+        let processedPhotos = 0
+        
+        // Подсчитываем общий размер файлов для прогресса
+        let totalFilesSize = 0
+        photos.forEach(photo => {
+          try {
+            if (fs.existsSync(photo.path)) {
+              totalFilesSize += photo.size || 0
+            }
+          } catch (err) {
+            // Игнорируем ошибки при подсчете
+          }
+        })
         
         archive.on('data', chunk => {
           chunks.push(chunk)
+          totalSize += chunk.length
+          // Отправляем прогресс по размеру (примерно)
+          if (totalFilesSize > 0) {
+            const progress = Math.min(90, Math.floor((totalSize / totalFilesSize) * 80)) // До 90% на этапе архивации
+            ws.send(`archiveProgress:${progress}:Архивирование... (${processedPhotos}/${photos.length} файлов)`)
+          }
         })
         
         archive.on('end', () => {
           const buffer = Buffer.concat(chunks)
           const base64 = buffer.toString('base64')
           console.log(`[dashboard]: Archive created, size: ${buffer.length} bytes`)
-          ws.send(`photosArchive:${base64}`)
+          ws.send(`archiveProgress:100:Архив готов`)
+          // Небольшая задержка перед отправкой архива, чтобы прогресс успел обновиться
+          setTimeout(() => {
+            ws.send(`photosArchive:${base64}`)
+            ws.send(`archiveProgress:0:`) // Сбрасываем прогресс
+          }, 200)
         })
         
         archive.on('error', err => {
           console.error('[dashboard]: Archive error:', err)
+          ws.send(`archiveProgress:0:`) // Сбрасываем прогресс
           ws.send(`error:Ошибка при создании архива: ${err.message}`)
         })
         
-        photos.forEach(photo => {
+        photos.forEach((photo, index) => {
           try {
             if (fs.existsSync(photo.path)) {
               archive.file(photo.path, { name: photo.filename })
+              processedPhotos++
+              // Отправляем прогресс по количеству файлов
+              const progress = Math.floor((processedPhotos / photos.length) * 10) // Первые 10% на добавление файлов
+              ws.send(`archiveProgress:${progress}:Добавление файлов... (${processedPhotos}/${photos.length})`)
             } else {
               console.warn(`[dashboard]: Photo file not found: ${photo.path}`)
             }
@@ -157,6 +188,7 @@ wss.on('connection', ws => {
         archive.finalize()
       } catch (err) {
         console.error('[dashboard]: Failed to create archive:', err)
+        ws.send(`archiveProgress:0:`) // Сбрасываем прогресс
         ws.send(`error:Не удалось создать архив: ${err.message}`)
       }
     } else if (name === 'getCameraSettings') {

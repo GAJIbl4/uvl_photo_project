@@ -128,6 +128,11 @@ const webSocketEngine = (ref, stateCb, openCb) => new Promise(disconnectCb => {
       const url = URL.createObjectURL(blob)
       stateCb(state => ({ ...state, lastPhotoImage: url, lastPhotoId: photoId }))
     }
+    else if (name === 'archiveProgress') {
+      const [percent, ...messageParts] = payload.split(':')
+      const message = messageParts.join(':') || ''
+      stateCb(state => ({ ...state, archiveProgress: { percent: +percent || 0, message } }))
+    }
     else if (name === 'photosArchive') {
       const blob = new Blob([Uint8Array.from(atob(payload), c => c.charCodeAt(0))], { type: 'application/zip' })
       const url = URL.createObjectURL(blob)
@@ -136,6 +141,8 @@ const webSocketEngine = (ref, stateCb, openCb) => new Promise(disconnectCb => {
       a.download = `photos_${new Date().toISOString().split('T')[0]}.zip`
       a.click()
       URL.revokeObjectURL(url)
+      // Сбрасываем прогресс после загрузки
+      stateCb(state => ({ ...state, archiveProgress: { percent: 0, message: '' } }))
     }
     else if (name === 'cameraSettings') {
       try {
@@ -211,6 +218,7 @@ const App = () => {
   const [shieldMessage, setShieldMessage] = useState('')
   const [cameraSettings, setCameraSettings] = useState({})
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [archiveProgress, setArchiveProgress] = useState({ percent: 0, message: '' })
   const hardDisconnected = useRef(true)
   const wsRef = useRef(null)
   const sendIfConnected = (...args) => wsRef.current?.send?.(...args)
@@ -264,6 +272,18 @@ const App = () => {
       setCameraSettings(state.cameraSettings)
     }
   }, [state.cameraSettings])
+
+  useEffect(() => {
+    if (state.archiveProgress) {
+      setArchiveProgress(state.archiveProgress)
+    }
+  }, [state.archiveProgress])
+
+  useEffect(() => {
+    if (state.archiveProgress) {
+      setArchiveProgress(state.archiveProgress)
+    }
+  }, [state.archiveProgress])
 
   // Запрашиваем последнюю фотографию при изменении lastPhoto
   useEffect(() => {
@@ -375,7 +395,20 @@ const App = () => {
           <div class="controls-section" style="margin-top:1em;">
             <h2>Управление</h2>
             <div style="display:flex;flex-direction:column;gap:0.5em;">
-              <button onClick={handleDownloadArchive}>Выгрузить архив фотографий</button>
+              <button onClick={handleDownloadArchive} disabled={archiveProgress.percent > 0 && archiveProgress.percent < 100}>
+                {archiveProgress.percent > 0 && archiveProgress.percent < 100 ? 'Создание архива...' : 'Выгрузить архив фотографий'}
+              </button>
+              {archiveProgress.percent > 0 && (
+                <div style="width:100%;">
+                  <div style="display:flex;justify-content:space-between;margin-bottom:0.25em;font-size:0.9em;color:#aaa;">
+                    <span>{archiveProgress.message || 'Обработка...'}</span>
+                    <span>{archiveProgress.percent}%</span>
+                  </div>
+                  <div style="width:100%;height:8px;background:#333;border-radius:4px;overflow:hidden;">
+                    <div style={`width:${archiveProgress.percent}%;height:100%;background:#4CAF50;transition:width 0.3s ease;`}></div>
+                  </div>
+                </div>
+              )}
               <button onClick={handleDeleteAll} style="background:#f44336;color:white;">Очистить все фотографии</button>
             </div>
           </div>
