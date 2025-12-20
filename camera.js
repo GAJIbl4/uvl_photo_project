@@ -29,9 +29,20 @@ function Libcameravid(options = {}, errorCb) {
   const video_process = child.spawn('libcamera-vid', args, {
     stdio: ['ignore', 'pipe', 'inherit']
   })
+  
+  // Сохраняем ссылку на процесс для возможности его остановки
+  if (typeof module !== 'undefined' && module.exports) {
+    // Экспортируем функцию для получения процесса, если нужно
+    video_process.stdout._process = video_process
+  }
+  
   if (errorCb) {
     video_process.on('error', errorCb)
-    video_process.on('exit', () => errorCb(new Error('libcamera process quit')))
+    video_process.on('exit', (code, signal) => {
+      if (code !== 0 && code !== null) {
+        errorCb(new Error(`libcamera process quit with code ${code}`))
+      }
+    })
   }
 
   return video_process.stdout

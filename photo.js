@@ -1,10 +1,10 @@
 'use strict'
 
 const { LibcameravidJPEGStream } = require('./camera')
-const { writeFileSync, mkdirSync, readdirSync, unlinkSync, statSync, existsSync } = require('node:fs')
+const { writeFileSync, mkdirSync, readdirSync, unlinkSync, statSync, existsSync, readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const piexifjs = require('piexifjs')
-const { execSync } = require('child_process')
+const { execSync, spawn } = require('child_process')
 
 let photoWidth = +(process.env.PHOTO_WIDTH || 2028)
 let photoHeight = +(process.env.PHOTO_HEIGHT || 1520)
@@ -89,12 +89,29 @@ if (photoSaveEnabled) {
 let cameraError = false
 let camera = null
 
-const initCamera = () => {
+// Остановка всех процессов libcamera-vid
+const killLibcameraProcesses = () => {
+  try {
+    // Находим и убиваем все процессы libcamera-vid
+    execSync('pkill -f "libcamera-vid" || true', { timeout: 2000 })
+    // Небольшая задержка для завершения процессов
+    return new Promise(resolve => setTimeout(resolve, 500))
+  } catch (err) {
+    // Игнорируем ошибки, если процессов нет
+    return Promise.resolve()
+  }
+}
+
+const initCamera = async () => {
+  // Сначала останавливаем старые процессы libcamera-vid
+  await killLibcameraProcesses()
+  
   if (camera) {
     // Удаляем старую камеру, если она была
     try {
       camera.removeAllListeners()
       if (camera.destroy) camera.destroy()
+      camera = null
     } catch (err) {
       console.log('[photo]: Error cleaning up old camera:', err.message)
     }
@@ -128,7 +145,12 @@ const initCamera = () => {
   }, 1000)
 }
 
-initCamera()
+// Инициализируем камеру при загрузке модуля (асинхронно, чтобы не блокировать)
+setTimeout(() => {
+  initCamera().catch(err => {
+    console.log('[photo]: Failed to initialize camera on startup:', err.message)
+  })
+}, 1000)
 
 const exifRotate = (buff, orientation) => {
   if (!orientation) return buff
@@ -258,6 +280,13 @@ const updateCameraSettings = (settings) => {
   process.env.PHOTO_SAVE_DIR = photoSaveDir
   process.env.CAMERA_FRAMERATE = String(cameraFramerate)
   
+  // Сохраняем настройки в .env файл
+  try {
+    saveSettingsToEnv()
+  } catch (err) {
+    warnings.push(`Не удалось сохранить настройки в .env файл: ${err.message}`)
+  }
+  
   // Создаём директорию, если включено сохранение
   if (photoSaveEnabled) {
     try {
@@ -274,6 +303,67 @@ const updateCameraSettings = (settings) => {
     warnings,
     settings: getCameraSettings() 
   }
+}
+
+// Сохранение настроек в .env файл
+const saveSettingsToEnv = () => {
+  const envPath = join(process.cwd(), '.env')
+  let envContent = ''
+  
+  // Читаем существующий .env файл, если он есть
+  if (existsSync(envPath)) {
+    envContent = readFileSync(envPath, 'utf8')
+  }
+  
+  // Обновляем или добавляем настройки камеры
+  const cameraSettings = {
+    'PHOTO_WIDTH': String(photoWidth),
+    'PHOTO_HEIGHT': String(photoHeight),
+    'PHOTO_EXIF_ORIENTATION': String(photoExifOrientation),
+    'PHOTO_SAVE_ENABLED': String(photoSaveEnabled),
+    'PHOTO_SAVE_DIR': photoSaveDir,
+    'CAMERA_FRAMERATE': String(cameraFramerate)
+  }
+  
+  // Разбиваем на строки и обновляем нужные
+  const lines = envContent.split('\n')
+  const updatedLines = []
+  const updatedKeys = new Set()
+  
+  for (const line of lines) {
+    const trimmed = line.trim()
+    // Пропускаем пустые строки и комментарии
+    if (!trimmed || trimmed.startsWith('#')) {
+      updatedLines.push(line)
+      continue
+    }
+    
+    // Проверяем, есть ли в строке настройка камеры
+    let found = false
+    for (const [key, value] of Object.entries(cameraSettings)) {
+      if (trimmed.startsWith(key + '=')) {
+        updatedLines.push(`${key}=${value}`)
+        updatedKeys.add(key)
+        found = true
+        break
+      }
+    }
+    
+    if (!found) {
+      updatedLines.push(line)
+    }
+  }
+  
+  // Добавляем настройки, которых не было в файле
+  for (const [key, value] of Object.entries(cameraSettings)) {
+    if (!updatedKeys.has(key)) {
+      updatedLines.push(`${key}=${value}`)
+    }
+  }
+  
+  // Сохраняем обратно
+  writeFileSync(envPath, updatedLines.join('\n') + '\n', 'utf8')
+  console.log('[photo]: Settings saved to .env file')
 }
 
 const reloadCamera = () => {
@@ -300,69 +390,66 @@ const reloadCamera = () => {
   console.log('[photo]: Reloading camera with new settings...')
   console.log(`[photo]: Resolution: ${photoWidth}x${photoHeight}, FPS: ${cameraFramerate}`)
   
-  // Останавливаем старую камеру
-  if (camera) {
+  // Останавливаем старую камеру и процессы libcamera-vid
+  return new Promise(async (resolve) => {
     try {
-      camera.removeAllListeners()
-      // Пытаемся убить процесс, если это возможно
-      if (camera._readableState && camera._readableState.pipes) {
-        const pipes = camera._readableState.pipes
-        if (Array.isArray(pipes)) {
-          pipes.forEach(pipe => {
-            if (pipe && pipe.destroy) pipe.destroy()
-          })
+      // Останавливаем все процессы libcamera-vid
+      await killLibcameraProcesses()
+      
+      if (camera) {
+        try {
+          camera.removeAllListeners()
+          if (camera.destroy) camera.destroy()
+          camera = null
+        } catch (err) {
+          console.log('[photo]: Error cleaning up old camera:', err.message)
         }
       }
-    } catch (err) {
-      console.log('[photo]: Error cleaning up old camera:', err.message)
-    }
-  }
-  
-  // Небольшая задержка перед перезапуском
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      try {
-        initCamera()
-        
-        // Проверяем успешность запуска через 1.5 секунды
-        setTimeout(() => {
-          if (cameraError) {
-            const errorMsg = cameraError.message || 'Неизвестная ошибка'
-            console.log('[photo]: Failed to reload camera:', errorMsg)
-            
-            // Если ошибка связана с памятью, предлагаем решение
-            let userError = errorMsg
-            if (errorMsg.includes('memory') || errorMsg.includes('allocate') || errorMsg.includes('buffer') || errorMsg.includes('failed to start')) {
-              userError = `Не удалось запустить камеру с разрешением ${photoWidth}x${photoHeight}. Не хватает памяти GPU. Попробуйте: 1) Снизить разрешение до 2592x1944 или ниже, 2) Увеличить gpu_mem в /boot/config.txt (например, gpu_mem=128 или gpu_mem=256), затем перезагрузить Raspberry Pi`
-            }
-            
-            resolve({
-              success: false,
-              error: userError,
-              settings: getCameraSettings()
-            })
-          } else {
-            console.log('[photo]: Camera reloaded successfully')
-            resolve({
-              success: true,
-              settings: getCameraSettings(),
-              warnings: [
-                resolutionValidation.warning,
-                fpsValidation.warning
-              ].filter(Boolean)
-            })
+      
+      // Дополнительная задержка для полного освобождения ресурсов
+      await new Promise(r => setTimeout(r, 500))
+      
+      // Инициализируем новую камеру
+      await initCamera()
+      
+      // Проверяем успешность запуска через 1.5 секунды
+      setTimeout(() => {
+        if (cameraError) {
+          const errorMsg = cameraError.message || 'Неизвестная ошибка'
+          console.log('[photo]: Failed to reload camera:', errorMsg)
+          
+          // Если ошибка связана с памятью, предлагаем решение
+          let userError = errorMsg
+          if (errorMsg.includes('memory') || errorMsg.includes('allocate') || errorMsg.includes('buffer') || errorMsg.includes('failed to start')) {
+            userError = `Не удалось запустить камеру с разрешением ${photoWidth}x${photoHeight}. Не хватает памяти GPU. Попробуйте: 1) Снизить разрешение до 2592x1944 или ниже, 2) Увеличить gpu_mem в /boot/config.txt (например, gpu_mem=128 или gpu_mem=256), затем перезагрузить Raspberry Pi`
           }
-        }, 1500)
-      } catch (err) {
-        console.log('[photo]: Failed to reload camera:', err.message)
-        cameraError = err
-        resolve({
-          success: false,
-          error: err.message,
-          settings: getCameraSettings()
-        })
-      }
-    }, 500)
+          
+          resolve({
+            success: false,
+            error: userError,
+            settings: getCameraSettings()
+          })
+        } else {
+          console.log('[photo]: Camera reloaded successfully')
+          resolve({
+            success: true,
+            settings: getCameraSettings(),
+            warnings: [
+              resolutionValidation.warning,
+              fpsValidation.warning
+            ].filter(Boolean)
+          })
+        }
+      }, 1500)
+    } catch (err) {
+      console.log('[photo]: Failed to reload camera:', err.message)
+      cameraError = err
+      resolve({
+        success: false,
+        error: err.message,
+        settings: getCameraSettings()
+      })
+    }
   })
 }
 
