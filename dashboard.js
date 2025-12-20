@@ -23,6 +23,7 @@ const {
   getMeteringModes,
   getAwbModes
 } = require('./photo')
+const { existsSync } = require('node:fs')
 require('./dashboard-make')
 
 const textEncoder = new TextEncoder()
@@ -113,30 +114,51 @@ wss.on('connection', ws => {
       }
     } else if (name === 'downloadPhotosArchive') {
       // Создание и отправка архива со всеми фотографиями
-      const photos = getPhotoList()
-      if (photos.length === 0) {
-        ws.send(`error:No photos to download`)
-        return
+      try {
+        const photos = getPhotoList()
+        if (photos.length === 0) {
+          ws.send(`error:Нет фотографий для выгрузки`)
+          return
+        }
+        
+        console.log(`[dashboard]: Creating archive with ${photos.length} photos`)
+        
+        const archive = archiver('zip', { zlib: { level: 9 } })
+        const chunks = []
+        
+        archive.on('data', chunk => {
+          chunks.push(chunk)
+        })
+        
+        archive.on('end', () => {
+          const buffer = Buffer.concat(chunks)
+          const base64 = buffer.toString('base64')
+          console.log(`[dashboard]: Archive created, size: ${buffer.length} bytes`)
+          ws.send(`photosArchive:${base64}`)
+        })
+        
+        archive.on('error', err => {
+          console.error('[dashboard]: Archive error:', err)
+          ws.send(`error:Ошибка при создании архива: ${err.message}`)
+        })
+        
+        photos.forEach(photo => {
+          try {
+            if (fs.existsSync(photo.path)) {
+              archive.file(photo.path, { name: photo.filename })
+            } else {
+              console.warn(`[dashboard]: Photo file not found: ${photo.path}`)
+            }
+          } catch (err) {
+            console.error(`[dashboard]: Error adding photo ${photo.filename}:`, err.message)
+          }
+        })
+        
+        archive.finalize()
+      } catch (err) {
+        console.error('[dashboard]: Failed to create archive:', err)
+        ws.send(`error:Не удалось создать архив: ${err.message}`)
       }
-      
-      const archive = archiver('zip', { zlib: { level: 9 } })
-      const chunks = []
-      
-      archive.on('data', chunk => chunks.push(chunk))
-      archive.on('end', () => {
-        const buffer = Buffer.concat(chunks)
-        const base64 = buffer.toString('base64')
-        ws.send(`photosArchive:${base64}`)
-      })
-      archive.on('error', err => {
-        ws.send(`error:${err.message}`)
-      })
-      
-      photos.forEach(photo => {
-        archive.file(photo.path, { name: photo.filename })
-      })
-      
-      archive.finalize()
     } else if (name === 'getCameraSettings') {
       const settings = getCameraSettings()
       const modes = getCameraModes()
@@ -153,9 +175,30 @@ wss.on('connection', ws => {
     } else if (name === 'updateCameraSettings') {
       try {
         const settings = JSON.parse(payload)
-        const updated = updateCameraSettings(settings)
-        ws.send(`cameraSettings:${JSON.stringify(updated)}`)
-        setDashboardState('cameraSettings', updated)
+        const result = updateCameraSettings(settings)
+        const modes = getCameraModes()
+        const exposureModes = getExposureModes()
+        const meteringModes = getMeteringModes()
+        const awbModes = getAwbModes()
+        const settingsWithModes = { 
+          ...result.settings, 
+          cameraModes: modes,
+          exposureModes,
+          meteringModes,
+          awbModes
+        }
+        if (result.success) {
+          ws.send(`cameraSettings:${JSON.stringify(settingsWithModes)}`)
+          setDashboardState('cameraSettings', settingsWithModes)
+          if (result.warnings && result.warnings.length > 0) {
+            ws.send(`warning:${result.warnings.join('; ')}`)
+          } else {
+            ws.send(`info:Настройки сохранены успешно`)
+          }
+        } else {
+          ws.send(`error:${result.errors.join('; ')}`)
+          ws.send(`cameraSettings:${JSON.stringify(settingsWithModes)}`)
+        }
       } catch (err) {
         ws.send(`error:${err.message}`)
       }
