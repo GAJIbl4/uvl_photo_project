@@ -34,6 +34,7 @@ const current = {
 }
 
 let droneIp
+const dashboardHostname = process.env.DASHBOARD_HOSTNAME || null
 setInterval(() => {
   const ip = getIp()
   if (ip !== droneIp) {
@@ -41,11 +42,18 @@ setInterval(() => {
     console.log('[drone]: ip changed', ip)
     if (ip) {
       dashboard.setState('droneIp', ip)
+      if (dashboardHostname) {
+        dashboard.setState('droneHostname', dashboardHostname)
+        console.log(`[dashboard]: Доступен по адресу: http://${dashboardHostname}:8080`)
+      } else {
+        dashboard.setState('droneHostname', null)
+      }
       if (mavlinkUdpEn) {
         console.log(`[mavlink-udp]: Для подключения через Mission Planner используйте: ${ip}:${mavlinkUdpPort}`)
       }
     } else {
       dashboard.setState('droneIp', null)
+      dashboard.setState('droneHostname', null)
     }
   }
 }, 1000)

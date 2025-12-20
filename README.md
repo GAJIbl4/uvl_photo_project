@@ -91,6 +91,29 @@ CAMERA_FRAMERATE=10               # Частота кадров
 - **HTTP**: http://localhost:8080 (статические файлы)
 - **WebSocket**: ws://localhost:8081 (двусторонняя связь)
 
+### Настройка доступа по доменному имени
+
+Для доступа к dashboard по доменному имени `uvl-photo.local` вместо IP адреса:
+
+**Вариант 1 (рекомендуется):** При установке с правами root скрипт настройки DNS запустится автоматически:
+```bash
+sudo npm install
+```
+
+**Вариант 2:** Запустите настройку DNS вручную:
+```bash
+sudo npm run setup-dns
+```
+
+**Вариант 3:** Запустите скрипт напрямую:
+```bash
+sudo ./tools/setup-dns.sh
+```
+
+После настройки dashboard будет доступен по адресу: `http://uvl-photo.local:8080`
+
+Подробная документация: [docs/ru/dashboard-url.md](docs/ru/dashboard-url.md)
+
 ## Структура проекта
 
 - `index.js` - главный файл приложения

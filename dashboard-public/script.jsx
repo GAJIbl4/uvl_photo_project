@@ -371,6 +371,16 @@ const App = () => {
       <div class="controls">
         <h1>UVL Photo Project</h1>
         <div style="flex:1"></div>
+        {state.droneHostname && (
+          <div style="font-size:0.9em;color:#aaa;margin-right:1em;">
+            {state.droneHostname}:8080
+          </div>
+        )}
+        {!state.droneHostname && state.droneIp && (
+          <div style="font-size:0.9em;color:#aaa;margin-right:1em;">
+            {state.droneIp}:8080
+          </div>
+        )}
         <div style="font-size:1.5em;z-index:10" onClick={() => setHideDev(v => !v)}>{{ connected: '🟢', disconnected: '🔴', connecting: '🟠' }[connectionState]}</div>
       </div>
       <div class="main">

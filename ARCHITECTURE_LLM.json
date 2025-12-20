@@ -159,6 +159,7 @@
         },
         "state_variables": {
           "droneIp": "Текущий IP адрес Raspberry Pi (обновляется автоматически)",
+          "droneHostname": "Доменное имя для доступа к dashboard (из переменной окружения DASHBOARD_HOSTNAME, если указано)",
           "mavlinkUdpConnected": "Статус подключения через MAVLink UDP (true/false)",
           "mavlinkUdpClientIp": "IP адрес подключенного клиента через MAVLink UDP",
           "lastPhoto": "Информация о последней сделанной фотографии (id, timestamp, saved, path)",
@@ -573,6 +574,10 @@
       "DRONE_ID": {
         "default": "00",
         "description": "ID дрона"
+      },
+      "DASHBOARD_HOSTNAME": {
+        "default": null,
+        "description": "Доменное имя для доступа к dashboard (рекомендуется: uvl-photo.local). Если указано, будет использоваться вместо IP адреса для отображения в интерфейсе. Для работы требуется настройка DNS или mDNS на уровне системы/роутера. Автоматическая настройка выполняется скриптом tools/setup-dns.sh"
       }
     }
   },

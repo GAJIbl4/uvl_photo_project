@@ -5,7 +5,8 @@
   "bin": "index.js",
   "scripts": {
     "build": "npx @yao-pkg/pkg . --target=linux",
-    "postinstall": "node dashboard-make.js"
+    "postinstall": "node dashboard-make.js && node tools/setup-dns.js",
+    "setup-dns": "node tools/setup-dns.js"
   },
   "keywords": [],
   "author": "Leonid Romanovskii <romanovskii.leonid@gmail.com>",
