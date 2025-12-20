@@ -313,7 +313,7 @@ const App = () => {
                   onChange={e => {
                     const mode = e.target.value
                     if (mode) {
-                      const modeMatch = mode.match(/(\d+)x(\d+)@(\d+))fps/)
+                      const modeMatch = mode.match(/(\d+)x(\d+)@(\d+)fps/)
                       if (modeMatch) {
                         const width = +modeMatch[1]
                         const height = +modeMatch[2]
