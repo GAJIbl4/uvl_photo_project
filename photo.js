@@ -188,9 +188,6 @@ camera.once?.('data', data => null)
   }, 1000)
 }
 
-// Загружаем настройки при загрузке модуля
-loadCameraConfig()
-
 // Инициализируем камеру при загрузке модуля (асинхронно, чтобы не блокировать)
 setTimeout(() => {
   initCamera().catch(err => {
@@ -521,6 +518,9 @@ const saveCameraConfig = () => {
     throw new Error(`Не удалось записать в config файл (${err.code || 'UNKNOWN'}): ${err.message}`)
   }
 }
+
+// Загружаем настройки при загрузке модуля (после определения функций)
+loadCameraConfig()
 
 const reloadCamera = () => {
   // Валидация перед перезагрузкой

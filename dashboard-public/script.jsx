@@ -174,6 +174,37 @@ const webSocketEngine = (ref, stateCb, openCb) => new Promise(disconnectCb => {
   })
 })
 
+// Компонент ползунка с кнопкой сброса
+const SliderWithReset = ({ label, value, min, max, step, onChange, onReset, formatValue, unit = '' }) => {
+  const displayValue = formatValue ? formatValue(value) : value
+  return (
+    <div style="display:flex;flex-direction:column;gap:0.3em;margin-bottom:0.8em;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <label style="flex:1;font-size:0.9em;">{label}:</label>
+        <div style="display:flex;align-items:center;gap:0.5em;">
+          <span style="min-width:80px;text-align:right;font-weight:bold;">{displayValue}{unit}</span>
+          <button 
+            onClick={onReset}
+            style="padding:0.2em 0.5em;font-size:0.8em;background:#666;color:white;border:none;border-radius:3px;cursor:pointer;"
+            title="Сбросить на значение по умолчанию"
+          >
+            ↺
+          </button>
+        </div>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step || 1}
+        value={value}
+        onChange={e => onChange(+e.target.value)}
+        style="width:100%;"
+      />
+    </div>
+  )
+}
+
 const App = () => {
   const [state, setState] = useState({})
   const [connectionState, setConnectionState] = useState({})
@@ -183,6 +214,20 @@ const App = () => {
   const hardDisconnected = useRef(true)
   const wsRef = useRef(null)
   const sendIfConnected = (...args) => wsRef.current?.send?.(...args)
+  
+  // Дефолтные значения настроек
+  const defaultSettings = {
+    shutter: 0,
+    gain: 0,
+    brightness: 0,
+    contrast: 1.0,
+    saturation: 1.0,
+    sharpness: 1.0,
+    exifOrientation: 6,
+    exposure: 'normal',
+    metering: 'centre',
+    awb: 'auto'
+  }
 
   useEffect(async () => {
     while (true) {
@@ -254,6 +299,40 @@ const App = () => {
   const handleUpdateSettings = () => {
     sendIfConnected(`updateCameraSettings:${JSON.stringify(cameraSettings)}`)
   }
+  
+  // Автоматическое применение настроек при изменении
+  const applySettings = (newSettings) => {
+    const updatedSettings = { ...cameraSettings, ...newSettings }
+    setCameraSettings(updatedSettings)
+    sendIfConnected(`updateCameraSettings:${JSON.stringify(updatedSettings)}`)
+  }
+  
+  // Сброс одного параметра на дефолтное значение
+  const resetSetting = (key) => {
+    const defaultValue = defaultSettings[key]
+    if (defaultValue !== undefined) {
+      applySettings({ [key]: defaultValue })
+    }
+  }
+  
+  // Сброс всех параметров на дефолтные значения
+  const resetAllSettings = () => {
+    if (confirm('Сбросить все настройки на значения по умолчанию?')) {
+      const resetSettings = {
+        shutter: defaultSettings.shutter,
+        gain: defaultSettings.gain,
+        brightness: defaultSettings.brightness,
+        contrast: defaultSettings.contrast,
+        saturation: defaultSettings.saturation,
+        sharpness: defaultSettings.sharpness,
+        exifOrientation: defaultSettings.exifOrientation,
+        exposure: defaultSettings.exposure,
+        metering: defaultSettings.metering,
+        awb: defaultSettings.awb
+      }
+      applySettings(resetSettings)
+    }
+  }
 
   const handleReloadCamera = () => {
     if (confirm('Перезагрузить камеру с новыми настройками?')) {
@@ -318,7 +397,7 @@ const App = () => {
                         const width = +modeMatch[1]
                         const height = +modeMatch[2]
                         const framerate = +modeMatch[3]
-                        setCameraSettings({...cameraSettings, mode, width, height, framerate})
+                        applySettings({ mode, width, height, framerate })
                       }
                     }
                   }}
@@ -335,36 +414,34 @@ const App = () => {
               
               <h3 style="margin-top:1em;margin-bottom:0.5em;">Настройки экспозиции</h3>
               
-              <label>
-                Выдержка (микросекунды, 0 = авто):
-                <input 
-                  type="number" 
-                  min="0" 
-                  max="100000000"
-                  value={cameraSettings.shutter || 0} 
-                  onChange={e => setCameraSettings({...cameraSettings, shutter: +e.target.value})}
-                  style="width:100%;"
-                />
-              </label>
+              <SliderWithReset
+                label="Выдержка (микросекунды, 0 = авто)"
+                value={cameraSettings.shutter || 0}
+                min={0}
+                max={100000000}
+                step={100000}
+                onChange={val => applySettings({ shutter: val })}
+                onReset={() => resetSetting('shutter')}
+                formatValue={val => val === 0 ? 'Авто' : val.toLocaleString()}
+                unit=" мкс"
+              />
               
-              <label>
-                Gain (усиление, 0 = авто):
-                <input 
-                  type="number" 
-                  min="0" 
-                  max="16" 
-                  step="0.1"
-                  value={cameraSettings.gain || 0} 
-                  onChange={e => setCameraSettings({...cameraSettings, gain: +e.target.value})}
-                  style="width:100%;"
-                />
-              </label>
+              <SliderWithReset
+                label="Gain (усиление, 0 = авто)"
+                value={cameraSettings.gain || 0}
+                min={0}
+                max={16}
+                step={0.1}
+                onChange={val => applySettings({ gain: val })}
+                onReset={() => resetSetting('gain')}
+                formatValue={val => val === 0 ? 'Авто' : val.toFixed(1)}
+              />
               
               <label>
                 Режим экспозиции:
                 <select 
                   value={cameraSettings.exposure || 'normal'}
-                  onChange={e => setCameraSettings({...cameraSettings, exposure: e.target.value})}
+                  onChange={e => applySettings({ exposure: e.target.value })}
                   style="width:100%;"
                 >
                   {(cameraSettings.exposureModes || []).map((mode, i) => (
@@ -379,7 +456,7 @@ const App = () => {
                 Режим замера экспозиции:
                 <select 
                   value={cameraSettings.metering || 'centre'}
-                  onChange={e => setCameraSettings({...cameraSettings, metering: e.target.value})}
+                  onChange={e => applySettings({ metering: e.target.value })}
                   style="width:100%;"
                 >
                   {(cameraSettings.meteringModes || []).map((mode, i) => (
@@ -394,7 +471,7 @@ const App = () => {
                 Баланс белого:
                 <select 
                   value={cameraSettings.awb || 'auto'}
-                  onChange={e => setCameraSettings({...cameraSettings, awb: e.target.value})}
+                  onChange={e => applySettings({ awb: e.target.value })}
                   style="width:100%;"
                 >
                   {(cameraSettings.awbModes || []).map((mode, i) => (
@@ -407,73 +484,68 @@ const App = () => {
               
               <h3 style="margin-top:1em;margin-bottom:0.5em;">Настройки изображения</h3>
               
-              <label>
-                Яркость (-1.0 до 1.0):
-                <input 
-                  type="number" 
-                  min="-1.0" 
-                  max="1.0" 
-                  step="0.1"
-                  value={cameraSettings.brightness || 0} 
-                  onChange={e => setCameraSettings({...cameraSettings, brightness: +e.target.value})}
-                  style="width:100%;"
-                />
-              </label>
+              <SliderWithReset
+                label="Яркость"
+                value={cameraSettings.brightness || 0}
+                min={-1.0}
+                max={1.0}
+                step={0.01}
+                onChange={val => applySettings({ brightness: val })}
+                onReset={() => resetSetting('brightness')}
+                formatValue={val => val.toFixed(2)}
+              />
               
-              <label>
-                Контраст (0.0 до 2.0):
-                <input 
-                  type="number" 
-                  min="0.0" 
-                  max="2.0" 
-                  step="0.1"
-                  value={cameraSettings.contrast || 1.0} 
-                  onChange={e => setCameraSettings({...cameraSettings, contrast: +e.target.value})}
-                  style="width:100%;"
-                />
-              </label>
+              <SliderWithReset
+                label="Контраст"
+                value={cameraSettings.contrast || 1.0}
+                min={0.0}
+                max={2.0}
+                step={0.01}
+                onChange={val => applySettings({ contrast: val })}
+                onReset={() => resetSetting('contrast')}
+                formatValue={val => val.toFixed(2)}
+              />
               
-              <label>
-                Насыщенность (0.0 до 2.0):
-                <input 
-                  type="number" 
-                  min="0.0" 
-                  max="2.0" 
-                  step="0.1"
-                  value={cameraSettings.saturation || 1.0} 
-                  onChange={e => setCameraSettings({...cameraSettings, saturation: +e.target.value})}
-                  style="width:100%;"
-                />
-              </label>
+              <SliderWithReset
+                label="Насыщенность"
+                value={cameraSettings.saturation || 1.0}
+                min={0.0}
+                max={2.0}
+                step={0.01}
+                onChange={val => applySettings({ saturation: val })}
+                onReset={() => resetSetting('saturation')}
+                formatValue={val => val.toFixed(2)}
+              />
               
-              <label>
-                Резкость (0.0 до 2.0):
-                <input 
-                  type="number" 
-                  min="0.0" 
-                  max="2.0" 
-                  step="0.1"
-                  value={cameraSettings.sharpness || 1.0} 
-                  onChange={e => setCameraSettings({...cameraSettings, sharpness: +e.target.value})}
-                  style="width:100%;"
-                />
-              </label>
+              <SliderWithReset
+                label="Резкость"
+                value={cameraSettings.sharpness || 1.0}
+                min={0.0}
+                max={2.0}
+                step={0.01}
+                onChange={val => applySettings({ sharpness: val })}
+                onReset={() => resetSetting('sharpness')}
+                formatValue={val => val.toFixed(2)}
+              />
               
               <h3 style="margin-top:1em;margin-bottom:0.5em;">Другие настройки</h3>
-              <label>
-                EXIF ориентация:
-                <input 
-                  type="number" 
-                  value={cameraSettings.exifOrientation || ''} 
-                  onChange={e => setCameraSettings({...cameraSettings, exifOrientation: +e.target.value})}
-                  style="width:100%;"
-                />
-              </label>
+              
+              <SliderWithReset
+                label="EXIF ориентация"
+                value={cameraSettings.exifOrientation || 6}
+                min={1}
+                max={8}
+                step={1}
+                onChange={val => applySettings({ exifOrientation: val })}
+                onReset={() => resetSetting('exifOrientation')}
+                formatValue={val => val}
+              />
+              
               <label>
                 <input 
                   type="checkbox" 
                   checked={cameraSettings.saveEnabled || false}
-                  onChange={e => setCameraSettings({...cameraSettings, saveEnabled: e.target.checked})}
+                  onChange={e => applySettings({ saveEnabled: e.target.checked })}
                 />
                 Сохранять фотографии на диск
               </label>
@@ -482,12 +554,12 @@ const App = () => {
                 <input 
                   type="text" 
                   value={cameraSettings.saveDir || ''} 
-                  onChange={e => setCameraSettings({...cameraSettings, saveDir: e.target.value})}
+                  onChange={e => applySettings({ saveDir: e.target.value })}
                   style="width:100%;"
                 />
               </label>
               <div style="display:flex;gap:0.5em;margin-top:0.5em;">
-                <button onClick={handleUpdateSettings}>Сохранить настройки</button>
+                <button onClick={resetAllSettings} style="background:#666;color:white;">Сбросить все настройки</button>
                 <button onClick={handleReloadCamera}>Перезагрузить камеру</button>
               </div>
             </div>
