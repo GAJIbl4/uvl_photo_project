@@ -4,7 +4,8 @@
   "main": "index.js",
   "bin": "index.js",
   "scripts": {
-    "build": "npx @yao-pkg/pkg . --target=linux"
+    "build": "npx @yao-pkg/pkg . --target=linux",
+    "postinstall": "node dashboard-make.js"
   },
   "keywords": [],
   "author": "Leonid Romanovskii <romanovskii.leonid@gmail.com>",

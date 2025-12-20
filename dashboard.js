@@ -18,8 +18,10 @@ const {
   reloadCamera,
   getPhotoList,
   deleteAllPhotos,
-  getValidResolutions,
-  getValidFPS
+  getCameraModes,
+  getExposureModes,
+  getMeteringModes,
+  getAwbModes
 } = require('./photo')
 require('./dashboard-make')
 
@@ -137,7 +139,17 @@ wss.on('connection', ws => {
       archive.finalize()
     } else if (name === 'getCameraSettings') {
       const settings = getCameraSettings()
-      ws.send(`cameraSettings:${JSON.stringify(settings)}`)
+      const modes = getCameraModes()
+      const exposureModes = getExposureModes()
+      const meteringModes = getMeteringModes()
+      const awbModes = getAwbModes()
+      ws.send(`cameraSettings:${JSON.stringify({ 
+        ...settings, 
+        cameraModes: modes,
+        exposureModes,
+        meteringModes,
+        awbModes
+      })}`)
     } else if (name === 'updateCameraSettings') {
       try {
         const settings = JSON.parse(payload)
@@ -149,10 +161,18 @@ wss.on('connection', ws => {
       }
     } else if (name === 'reloadCamera') {
       reloadCamera().then(result => {
-        const resolutions = getValidResolutions()
-        const fps = getValidFPS()
+        const modes = getCameraModes()
+        const exposureModes = getExposureModes()
+        const meteringModes = getMeteringModes()
+        const awbModes = getAwbModes()
         if (result.success) {
-          ws.send(`cameraSettings:${JSON.stringify({ ...result.settings, validResolutions: resolutions, validFPS: fps })}`)
+          ws.send(`cameraSettings:${JSON.stringify({ 
+            ...result.settings, 
+            cameraModes: modes,
+            exposureModes,
+            meteringModes,
+            awbModes
+          })}`)
           setDashboardState('cameraSettings', result.settings)
           if (result.warnings && result.warnings.length > 0) {
             ws.send(`warning:Камера перезагружена. Предупреждения: ${result.warnings.join('; ')}`)
@@ -161,7 +181,13 @@ wss.on('connection', ws => {
           }
         } else {
           ws.send(`error:${result.error}`)
-          ws.send(`cameraSettings:${JSON.stringify({ ...result.settings, validResolutions: resolutions, validFPS: fps })}`)
+          ws.send(`cameraSettings:${JSON.stringify({ 
+            ...result.settings, 
+            cameraModes: modes,
+            exposureModes,
+            meteringModes,
+            awbModes
+          })}`)
         }
       }).catch(err => {
         ws.send(`error:${err.message}`)
@@ -189,18 +215,34 @@ wss.on('connection', ws => {
   
   // Отправляем начальные настройки камеры
   const cameraSettings = getCameraSettings()
-  const resolutions = getValidResolutions()
-  const fps = getValidFPS()
-  setDashboardState('cameraSettings', { ...cameraSettings, validResolutions: resolutions, validFPS: fps })
+  const modes = getCameraModes()
+  const exposureModes = getExposureModes()
+  const meteringModes = getMeteringModes()
+  const awbModes = getAwbModes()
+  setDashboardState('cameraSettings', { 
+    ...cameraSettings, 
+    cameraModes: modes,
+    exposureModes,
+    meteringModes,
+    awbModes
+  })
 })
 wss.on('listening', () => {
   console.log('[dashboard]: ws online @ port ', 8081)
   
   // Инициализируем настройки камеры в состоянии
   const cameraSettings = getCameraSettings()
-  const resolutions = getValidResolutions()
-  const fps = getValidFPS()
-  setDashboardState('cameraSettings', { ...cameraSettings, validResolutions: resolutions, validFPS: fps })
+  const modes = getCameraModes()
+  const exposureModes = getExposureModes()
+  const meteringModes = getMeteringModes()
+  const awbModes = getAwbModes()
+  setDashboardState('cameraSettings', { 
+    ...cameraSettings, 
+    cameraModes: modes,
+    exposureModes,
+    meteringModes,
+    awbModes
+  })
 })
 
 class Dashboard extends EventEmitter {

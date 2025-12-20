@@ -52,13 +52,44 @@ function LibcameravidJPEGStream(options = {}, errorCb) {
   const cameraTimeout = +(process.env.CAMERA_TIMEOUT || 0)
   const defaultFramerate = +(process.env.CAMERA_FRAMERATE || 10)
   
-  return Libcameravid({
+  const libcameraOptions = {
     width: options.width || 640,
     height: options.height || 480,
     timeout: cameraTimeout,
     framerate: options.framerate !== undefined ? options.framerate : defaultFramerate,
     codec: 'MJPEG',
-  }, errorCb).pipe(new SplitFrames({
+  }
+  
+  // Добавляем настройки экспозиции, если они указаны
+  if (options.shutter !== undefined && options.shutter > 0) {
+    libcameraOptions.shutter = options.shutter
+  }
+  if (options.gain !== undefined && options.gain > 0) {
+    libcameraOptions.gain = options.gain
+  }
+  if (options.exposure) {
+    libcameraOptions.exposure = options.exposure
+  }
+  if (options.metering) {
+    libcameraOptions.metering = options.metering
+  }
+  if (options.awb) {
+    libcameraOptions.awb = options.awb
+  }
+  if (options.brightness !== undefined) {
+    libcameraOptions.brightness = options.brightness
+  }
+  if (options.contrast !== undefined) {
+    libcameraOptions.contrast = options.contrast
+  }
+  if (options.saturation !== undefined) {
+    libcameraOptions.saturation = options.saturation
+  }
+  if (options.sharpness !== undefined) {
+    libcameraOptions.sharpness = options.sharpness
+  }
+  
+  return Libcameravid(libcameraOptions, errorCb).pipe(new SplitFrames({
     startWith: JPEG_START,
     endWith: JPEG_END
   }))

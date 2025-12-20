@@ -162,7 +162,7 @@
           "mavlinkUdpConnected": "Статус подключения через MAVLink UDP (true/false)",
           "mavlinkUdpClientIp": "IP адрес подключенного клиента через MAVLink UDP",
           "lastPhoto": "Информация о последней сделанной фотографии (id, timestamp, saved, path)",
-          "cameraSettings": "Настройки камеры (width, height, exifOrientation, saveEnabled, saveDir)"
+          "cameraSettings": "Настройки камеры (width, height, framerate, mode, shutter, gain, exposure, metering, awb, brightness, contrast, saturation, sharpness, exifOrientation, saveEnabled, saveDir, cameraModes, exposureModes, meteringModes, awbModes)"
         },
         "websocket_commands": {
           "getLastPhoto": "Запрос последней фотографии (отправляет base64 изображение)",
@@ -220,11 +220,18 @@
         "purpose": "Управление камерой и съёмка фотографий",
         "key_functions": {
           "takePhoto": "Съёмка фотографии с применением EXIF поворота. Принимает id и callback, возвращает JPEG данные или ошибку. Если включено сохранение (PHOTO_SAVE_ENABLED=true), сохраняет фотографию на диск в директорию PHOTO_SAVE_DIR",
-          "getCameraSettings": "Получение текущих настроек камеры (width, height, exifOrientation, saveEnabled, saveDir)",
-          "updateCameraSettings": "Обновление настроек камеры. Принимает объект с настройками, обновляет переменные окружения и возвращает обновленные настройки",
-          "reloadCamera": "Перезагрузка камеры с текущими настройками. Создает новый экземпляр LibcameravidJPEGStream",
+          "getCameraSettings": "Получение текущих настроек камеры (width, height, framerate, mode, shutter, gain, exposure, metering, awb, brightness, contrast, saturation, sharpness, exifOrientation, saveEnabled, saveDir)",
+          "updateCameraSettings": "Обновление настроек камеры. Принимает объект с настройками (может включать mode как строку '2028x1520@10fps' или отдельные width/height/framerate, а также параметры экспозиции). Валидирует режим камеры через validateCameraMode. Обновляет переменные окружения и возвращает объект {success, errors, warnings, settings}",
+          "reloadCamera": "Асинхронная перезагрузка камеры с текущими настройками. Валидирует режим перед перезагрузкой. Останавливает старые процессы libcamera-vid, ждет 500ms, создает новый экземпляр LibcameravidJPEGStream. Возвращает Promise с объектом {success, error, settings, warnings}",
           "getPhotoList": "Получение списка всех сохраненных фотографий. Возвращает массив объектов с информацией о файлах (filename, path, size, mtime), отсортированный по времени изменения (новые первыми)",
-          "deleteAllPhotos": "Удаление всех сохраненных фотографий из директории. Возвращает объект {deleted: число, error: строка или null}"
+          "deleteAllPhotos": "Удаление всех сохраненных фотографий из директории. Возвращает объект {deleted: число, error: строка или null}",
+          "getCameraModes": "Возвращает список предустановленных режимов камеры Raspberry Pi HQ Mini (CAMERA_MODES) - комбинации разрешения и FPS",
+          "getExposureModes": "Возвращает список допустимых режимов экспозиции (normal, short, long)",
+          "getMeteringModes": "Возвращает список допустимых режимов замера экспозиции (centre, spot, matrix, custom)",
+          "getAwbModes": "Возвращает список допустимых режимов баланса белого (auto, incandescent, tungsten, fluorescent, indoor, daylight, cloudy, custom)",
+          "validateCameraMode": "Валидация режима камеры (width, height, framerate). Проверяет наличие режима в CAMERA_MODES. Возвращает {valid, error, warning}",
+          "validateShutter": "Валидация выдержки (0-100000000 микросекунд, 0 = автоматическая). Возвращает {valid, error}",
+          "validateGain": "Валидация усиления gain (0-16, 0 = автоматическая). Возвращает {valid, error}"
         },
         "dependencies": ["camera.js", "piexifjs"],
         "key_variables": {
@@ -233,6 +240,20 @@
           "photoExifOrientation": "Ориентация EXIF из PHOTO_EXIF_ORIENTATION (можно изменять динамически)",
           "photoSaveEnabled": "Флаг включения сохранения на диск из PHOTO_SAVE_ENABLED (можно изменять динамически)",
           "photoSaveDir": "Директория для сохранения фотографий из PHOTO_SAVE_DIR (можно изменять динамически)",
+          "cameraFramerate": "Частота кадров из CAMERA_FRAMERATE (можно изменять динамически)",
+          "cameraShutter": "Выдержка в микросекундах из CAMERA_SHUTTER (0 = автоматическая, можно изменять динамически)",
+          "cameraGain": "Усиление gain из CAMERA_GAIN (0 = автоматическая, можно изменять динамически)",
+          "cameraExposure": "Режим экспозиции из CAMERA_EXPOSURE (normal, short, long, можно изменять динамически)",
+          "cameraMetering": "Режим замера экспозиции из CAMERA_METERING (centre, spot, matrix, custom, можно изменять динамически)",
+          "cameraAwb": "Баланс белого из CAMERA_AWB (auto, incandescent, tungsten, fluorescent, indoor, daylight, cloudy, custom, можно изменять динамически)",
+          "cameraBrightness": "Яркость из CAMERA_BRIGHTNESS (-1.0 до 1.0, можно изменять динамически)",
+          "cameraContrast": "Контраст из CAMERA_CONTRAST (0.0 до 2.0, можно изменять динамически)",
+          "cameraSaturation": "Насыщенность из CAMERA_SATURATION (0.0 до 2.0, можно изменять динамически)",
+          "cameraSharpness": "Резкость из CAMERA_SHARPNESS (0.0 до 2.0, можно изменять динамически)",
+          "CAMERA_MODES": "Массив предустановленных режимов камеры Raspberry Pi HQ Mini (комбинации разрешения и FPS)",
+          "EXPOSURE_MODES": "Массив допустимых режимов экспозиции",
+          "METERING_MODES": "Массив допустимых режимов замера экспозиции",
+          "AWB_MODES": "Массив допустимых режимов баланса белого",
           "camera": "Экземпляр LibcameravidJPEGStream (пересоздается при перезагрузке)",
           "cameraError": "Флаг ошибки камеры"
         }
@@ -249,7 +270,16 @@
           "width": "Ширина кадра (из options или по умолчанию 640)",
           "height": "Высота кадра (из options или по умолчанию 480)",
           "timeout": "Таймаут камеры из CAMERA_TIMEOUT (по умолчанию 0 - бесконечно)",
-          "framerate": "Частота кадров из CAMERA_FRAMERATE (по умолчанию 10)",
+          "framerate": "Частота кадров из options или из process.env.CAMERA_FRAMERATE (по умолчанию 10)",
+          "shutter": "Выдержка в микросекундах (если указана в options и > 0)",
+          "gain": "Усиление gain (если указано в options и > 0)",
+          "exposure": "Режим экспозиции (если указан в options)",
+          "metering": "Режим замера экспозиции (если указан в options)",
+          "awb": "Баланс белого (если указан в options)",
+          "brightness": "Яркость (если указана в options)",
+          "contrast": "Контраст (если указан в options)",
+          "saturation": "Насыщенность (если указана в options)",
+          "sharpness": "Резкость (если указана в options)",
           "codec": "Кодек (всегда MJPEG)"
         }
       },
@@ -453,6 +483,42 @@
       "CAMERA_FRAMERATE": {
         "default": "10",
         "description": "Частота кадров камеры"
+      },
+      "CAMERA_SHUTTER": {
+        "default": "0",
+        "description": "Выдержка в микросекундах (0 = автоматическая)"
+      },
+      "CAMERA_GAIN": {
+        "default": "0",
+        "description": "Усиление gain (0 = автоматическая, диапазон 0-16)"
+      },
+      "CAMERA_EXPOSURE": {
+        "default": "normal",
+        "description": "Режим экспозиции (normal, short, long)"
+      },
+      "CAMERA_METERING": {
+        "default": "centre",
+        "description": "Режим замера экспозиции (centre, spot, matrix, custom)"
+      },
+      "CAMERA_AWB": {
+        "default": "auto",
+        "description": "Баланс белого (auto, incandescent, tungsten, fluorescent, indoor, daylight, cloudy, custom)"
+      },
+      "CAMERA_BRIGHTNESS": {
+        "default": "0",
+        "description": "Яркость (-1.0 до 1.0)"
+      },
+      "CAMERA_CONTRAST": {
+        "default": "1.0",
+        "description": "Контраст (0.0 до 2.0)"
+      },
+      "CAMERA_SATURATION": {
+        "default": "1.0",
+        "description": "Насыщенность (0.0 до 2.0)"
+      },
+      "CAMERA_SHARPNESS": {
+        "default": "1.0",
+        "description": "Резкость (0.0 до 2.0)"
       },
       "PHOTO_SAVE_ENABLED": {
         "default": "false",

@@ -307,40 +307,159 @@ const App = () => {
             <h2>Настройки камеры</h2>
             <div style="display:flex;flex-direction:column;gap:0.5em;">
               <label>
-                Разрешение:
+                Режим камеры:
                 <select 
-                  value={cameraSettings.width && cameraSettings.height ? `${cameraSettings.width}x${cameraSettings.height}` : ''}
+                  value={cameraSettings.mode || ''}
                   onChange={e => {
-                    const [width, height] = e.target.value.split('x').map(v => +v)
-                    if (width && height) {
-                      setCameraSettings({...cameraSettings, width, height})
+                    const mode = e.target.value
+                    if (mode) {
+                      const modeMatch = mode.match(/(\d+)x(\d+)@(\d+))fps/)
+                      if (modeMatch) {
+                        const width = +modeMatch[1]
+                        const height = +modeMatch[2]
+                        const framerate = +modeMatch[3]
+                        setCameraSettings({...cameraSettings, mode, width, height, framerate})
+                      }
                     }
                   }}
                   style="width:100%;"
                 >
-                  <option value="">Выберите разрешение</option>
-                  {(cameraSettings.validResolutions || []).map((res, i) => (
-                    <option key={i} value={`${res.width}x${res.height}`}>
-                      {res.label}
+                  <option value="">Выберите режим</option>
+                  {(cameraSettings.cameraModes || []).map((mode, i) => (
+                    <option key={i} value={`${mode.width}x${mode.height}@${mode.framerate}fps`}>
+                      {mode.label}
                     </option>
                   ))}
                 </select>
               </label>
+              
+              <h3 style="margin-top:1em;margin-bottom:0.5em;">Настройки экспозиции</h3>
+              
               <label>
-                FPS (частота кадров):
+                Выдержка (микросекунды, 0 = авто):
+                <input 
+                  type="number" 
+                  min="0" 
+                  max="100000000"
+                  value={cameraSettings.shutter || 0} 
+                  onChange={e => setCameraSettings({...cameraSettings, shutter: +e.target.value})}
+                  style="width:100%;"
+                />
+              </label>
+              
+              <label>
+                Gain (усиление, 0 = авто):
+                <input 
+                  type="number" 
+                  min="0" 
+                  max="16" 
+                  step="0.1"
+                  value={cameraSettings.gain || 0} 
+                  onChange={e => setCameraSettings({...cameraSettings, gain: +e.target.value})}
+                  style="width:100%;"
+                />
+              </label>
+              
+              <label>
+                Режим экспозиции:
                 <select 
-                  value={cameraSettings.framerate || ''}
-                  onChange={e => setCameraSettings({...cameraSettings, framerate: +e.target.value})}
+                  value={cameraSettings.exposure || 'normal'}
+                  onChange={e => setCameraSettings({...cameraSettings, exposure: e.target.value})}
                   style="width:100%;"
                 >
-                  <option value="">Выберите FPS</option>
-                  {(cameraSettings.validFPS || []).map((fps, i) => (
-                    <option key={i} value={fps}>
-                      {fps} FPS
+                  {(cameraSettings.exposureModes || []).map((mode, i) => (
+                    <option key={i} value={mode}>
+                      {mode}
                     </option>
                   ))}
                 </select>
               </label>
+              
+              <label>
+                Режим замера экспозиции:
+                <select 
+                  value={cameraSettings.metering || 'centre'}
+                  onChange={e => setCameraSettings({...cameraSettings, metering: e.target.value})}
+                  style="width:100%;"
+                >
+                  {(cameraSettings.meteringModes || []).map((mode, i) => (
+                    <option key={i} value={mode}>
+                      {mode}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              
+              <label>
+                Баланс белого:
+                <select 
+                  value={cameraSettings.awb || 'auto'}
+                  onChange={e => setCameraSettings({...cameraSettings, awb: e.target.value})}
+                  style="width:100%;"
+                >
+                  {(cameraSettings.awbModes || []).map((mode, i) => (
+                    <option key={i} value={mode}>
+                      {mode}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              
+              <h3 style="margin-top:1em;margin-bottom:0.5em;">Настройки изображения</h3>
+              
+              <label>
+                Яркость (-1.0 до 1.0):
+                <input 
+                  type="number" 
+                  min="-1.0" 
+                  max="1.0" 
+                  step="0.1"
+                  value={cameraSettings.brightness || 0} 
+                  onChange={e => setCameraSettings({...cameraSettings, brightness: +e.target.value})}
+                  style="width:100%;"
+                />
+              </label>
+              
+              <label>
+                Контраст (0.0 до 2.0):
+                <input 
+                  type="number" 
+                  min="0.0" 
+                  max="2.0" 
+                  step="0.1"
+                  value={cameraSettings.contrast || 1.0} 
+                  onChange={e => setCameraSettings({...cameraSettings, contrast: +e.target.value})}
+                  style="width:100%;"
+                />
+              </label>
+              
+              <label>
+                Насыщенность (0.0 до 2.0):
+                <input 
+                  type="number" 
+                  min="0.0" 
+                  max="2.0" 
+                  step="0.1"
+                  value={cameraSettings.saturation || 1.0} 
+                  onChange={e => setCameraSettings({...cameraSettings, saturation: +e.target.value})}
+                  style="width:100%;"
+                />
+              </label>
+              
+              <label>
+                Резкость (0.0 до 2.0):
+                <input 
+                  type="number" 
+                  min="0.0" 
+                  max="2.0" 
+                  step="0.1"
+                  value={cameraSettings.sharpness || 1.0} 
+                  onChange={e => setCameraSettings({...cameraSettings, sharpness: +e.target.value})}
+                  style="width:100%;"
+                />
+              </label>
+              
+              <h3 style="margin-top:1em;margin-bottom:0.5em;">Другие настройки</h3>
               <label>
                 EXIF ориентация:
                 <input 

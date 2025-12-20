@@ -15,65 +15,80 @@ let photoSaveEnabled = process.env.PHOTO_SAVE_ENABLED === 'true'
 let photoSaveDir = process.env.PHOTO_SAVE_DIR || './photos'
 let cameraFramerate = +(process.env.CAMERA_FRAMERATE || 10)
 
-// Допустимые разрешения для камеры Raspberry Pi (стандартные значения)
-// Высокие разрешения (3280x2464 и выше) могут требовать увеличения gpu_mem в config.txt
-// и могут не работать на всех моделях Raspberry Pi
-const VALID_RESOLUTIONS = [
-  { width: 640, height: 480, label: '640x480 (VGA)', recommended: true },
-  { width: 800, height: 600, label: '800x600 (SVGA)', recommended: true },
-  { width: 1024, height: 768, label: '1024x768 (XGA)', recommended: true },
-  { width: 1280, height: 720, label: '1280x720 (HD)', recommended: true },
-  { width: 1280, height: 960, label: '1280x960', recommended: true },
-  { width: 1600, height: 1200, label: '1600x1200 (UXGA)', recommended: true },
-  { width: 1920, height: 1080, label: '1920x1080 (Full HD)', recommended: true },
-  { width: 2028, height: 1520, label: '2028x1520 (2MP)', recommended: true },
-  { width: 2592, height: 1944, label: '2592x1944 (5MP)', recommended: false, warning: 'Может требовать увеличения gpu_mem' },
-  { width: 3280, height: 2464, label: '3280x2464 (8MP)', recommended: false, warning: 'Требует увеличения gpu_mem в config.txt' },
-  { width: 4056, height: 3040, label: '4056x3040 (12MP) - экспериментальное', recommended: false, warning: 'Может не работать из-за нехватки памяти' },
+// Режимы камеры Raspberry Pi HQ Mini (комбинации разрешения и FPS)
+// Эти режимы предустановлены производителем и гарантированно работают
+const CAMERA_MODES = [
+  { width: 2028, height: 1520, framerate: 10, label: '2028x1520 @ 10fps (стандартный)', recommended: true },
+  { width: 2028, height: 1080, framerate: 30, label: '2028x1080 @ 30fps', recommended: true },
+  { width: 1332, height: 990, framerate: 40, label: '1332x990 @ 40fps', recommended: true },
+  { width: 640, height: 480, framerate: 120, label: '640x480 @ 120fps', recommended: true },
+  { width: 2028, height: 1520, framerate: 15, label: '2028x1520 @ 15fps', recommended: false },
+  { width: 2028, height: 1520, framerate: 20, label: '2028x1520 @ 20fps', recommended: false },
+  { width: 2028, height: 1080, framerate: 25, label: '2028x1080 @ 25fps', recommended: false },
+  { width: 2028, height: 1080, framerate: 50, label: '2028x1080 @ 50fps', recommended: false },
+  { width: 1332, height: 990, framerate: 50, label: '1332x990 @ 50fps', recommended: false },
+  { width: 640, height: 480, framerate: 60, label: '640x480 @ 60fps', recommended: false },
 ]
 
-// Допустимые значения FPS
-const VALID_FPS = [1, 2, 5, 10, 15, 20, 25, 30, 60]
+// Настройки экспозиции и фотографирования
+let cameraShutter = +(process.env.CAMERA_SHUTTER || 0) // Выдержка в микросекундах (0 = автоматическая)
+let cameraGain = +(process.env.CAMERA_GAIN || 0) // Усиление (gain) (0 = автоматическая)
+let cameraExposure = process.env.CAMERA_EXPOSURE || 'normal' // normal, short, long
+let cameraMetering = process.env.CAMERA_METERING || 'centre' // centre, spot, matrix, custom
+let cameraAwb = process.env.CAMERA_AWB || 'auto' // auto, incandescent, tungsten, fluorescent, indoor, daylight, cloudy, custom
+let cameraBrightness = +(process.env.CAMERA_BRIGHTNESS || 0) // Яркость (-1.0 до 1.0)
+let cameraContrast = +(process.env.CAMERA_CONTRAST || 1.0) // Контраст (0.0 до 2.0)
+let cameraSaturation = +(process.env.CAMERA_SATURATION || 1.0) // Насыщенность (0.0 до 2.0)
+let cameraSharpness = +(process.env.CAMERA_SHARPNESS || 1.0) // Резкость (0.0 до 2.0)
 
-// Валидация разрешения
-const validateResolution = (width, height) => {
+// Допустимые значения для настроек
+const EXPOSURE_MODES = ['normal', 'short', 'long']
+const METERING_MODES = ['centre', 'spot', 'matrix', 'custom']
+const AWB_MODES = ['auto', 'incandescent', 'tungsten', 'fluorescent', 'indoor', 'daylight', 'cloudy', 'custom']
+
+// Валидация режима камеры (комбинация разрешения и FPS)
+const validateCameraMode = (width, height, framerate) => {
   const w = +width
   const h = +height
+  const fps = +framerate
+  
   if (!w || !h || w < 64 || h < 64 || w > 5000 || h > 5000) {
     return { valid: false, error: 'Недопустимое разрешение. Ширина и высота должны быть от 64 до 5000' }
   }
   
-  // Проверяем, есть ли такое разрешение в списке допустимых
-  const found = VALID_RESOLUTIONS.find(r => r.width === w && r.height === h)
-  if (!found) {
-    // Разрешаем произвольные разрешения, но предупреждаем
-    return { valid: true, warning: 'Разрешение не в списке стандартных. Может не поддерживаться камерой.' }
+  if (!fps || fps < 1 || fps > 120) {
+    return { valid: false, error: 'FPS должен быть от 1 до 120' }
   }
   
-  // Проверяем предупреждения для высоких разрешений
+  // Проверяем, есть ли такой режим в списке допустимых
+  const found = CAMERA_MODES.find(m => m.width === w && m.height === h && m.framerate === fps)
+  if (!found) {
+    return { valid: true, warning: 'Режим не в списке стандартных. Может не поддерживаться камерой.' }
+  }
+  
+  // Проверяем предупреждения для режимов
   if (found.warning) {
     return { valid: true, warning: found.warning }
-  }
-  
-  // Предупреждение для очень высоких разрешений (может не хватить памяти)
-  if (w * h > 10000000) { // Больше 10MP
-    return { valid: true, warning: 'Высокое разрешение может не работать из-за нехватки памяти GPU. Увеличьте gpu_mem в /boot/config.txt' }
   }
   
   return { valid: true }
 }
 
-// Валидация FPS
-const validateFPS = (fps) => {
-  const f = +fps
-  if (!f || f < 1 || f > 120) {
-    return { valid: false, error: 'FPS должен быть от 1 до 120' }
+// Валидация выдержки (в микросекундах, 0 = автоматическая)
+const validateShutter = (shutter) => {
+  const s = +shutter
+  if (s < 0 || s > 100000000) { // Максимум 100 секунд
+    return { valid: false, error: 'Выдержка должна быть от 0 (авто) до 100000000 микросекунд' }
   }
-  
-  if (!VALID_FPS.includes(f)) {
-    return { valid: true, warning: 'FPS не в списке стандартных. Может не поддерживаться камерой.' }
+  return { valid: true }
+}
+
+// Валидация усиления (gain, 0 = автоматическая)
+const validateGain = (gain) => {
+  const g = +gain
+  if (g < 0 || g > 16) {
+    return { valid: false, error: 'Gain должен быть от 0 (авто) до 16' }
   }
-  
   return { valid: true }
 }
 
@@ -124,6 +139,15 @@ const initCamera = async () => {
     width: photoWidth,
     height: photoHeight,
     framerate: cameraFramerate,
+    shutter: cameraShutter || undefined,
+    gain: cameraGain || undefined,
+    exposure: cameraExposure !== 'normal' ? cameraExposure : undefined,
+    metering: cameraMetering !== 'centre' ? cameraMetering : undefined,
+    awb: cameraAwb !== 'auto' ? cameraAwb : undefined,
+    brightness: cameraBrightness !== 0 ? cameraBrightness : undefined,
+    contrast: cameraContrast !== 1.0 ? cameraContrast : undefined,
+    saturation: cameraSaturation !== 1.0 ? cameraSaturation : undefined,
+    sharpness: cameraSharpness !== 1.0 ? cameraSharpness : undefined,
   }, err => {
     cameraError = err
     if (err) {
@@ -206,38 +230,136 @@ const getCameraSettings = () => ({
   framerate: cameraFramerate
 })
 
-const getValidResolutions = () => VALID_RESOLUTIONS
+const getCameraModes = () => CAMERA_MODES
 
-const getValidFPS = () => VALID_FPS
+const getExposureModes = () => EXPOSURE_MODES
+const getMeteringModes = () => METERING_MODES
+const getAwbModes = () => AWB_MODES
 
 const updateCameraSettings = (settings) => {
   const errors = []
   const warnings = []
   
-  // Валидация разрешения
-  if (settings.width !== undefined || settings.height !== undefined) {
+  // Валидация режима камеры (если указан mode или width/height/framerate)
+  if (settings.mode !== undefined) {
+    // Режим задан как строка "2028x1520@10fps"
+    const modeMatch = settings.mode.match(/(\d+)x(\d+)@(\d+)fps/)
+    if (modeMatch) {
+      const width = +modeMatch[1]
+      const height = +modeMatch[2]
+      const framerate = +modeMatch[3]
+      const validation = validateCameraMode(width, height, framerate)
+      if (!validation.valid) {
+        errors.push(validation.error)
+      } else {
+        if (validation.warning) warnings.push(validation.warning)
+        photoWidth = width
+        photoHeight = height
+        cameraFramerate = framerate
+      }
+    } else {
+      errors.push('Неверный формат режима. Используйте формат: "2028x1520@10fps"')
+    }
+  } else if (settings.width !== undefined || settings.height !== undefined || settings.framerate !== undefined) {
+    // Режим задан отдельными параметрами
     const width = settings.width !== undefined ? +settings.width : photoWidth
     const height = settings.height !== undefined ? +settings.height : photoHeight
-    const validation = validateResolution(width, height)
+    const framerate = settings.framerate !== undefined ? +settings.framerate : cameraFramerate
+    const validation = validateCameraMode(width, height, framerate)
     if (!validation.valid) {
       errors.push(validation.error)
-    } else if (validation.warning) {
-      warnings.push(validation.warning)
     } else {
+      if (validation.warning) warnings.push(validation.warning)
       if (settings.width !== undefined) photoWidth = width
       if (settings.height !== undefined) photoHeight = height
+      if (settings.framerate !== undefined) cameraFramerate = framerate
     }
   }
   
-  // Валидация FPS
-  if (settings.framerate !== undefined) {
-    const validation = validateFPS(settings.framerate)
+  // Валидация выдержки
+  if (settings.shutter !== undefined) {
+    const validation = validateShutter(settings.shutter)
     if (!validation.valid) {
       errors.push(validation.error)
-    } else if (validation.warning) {
-      warnings.push(validation.warning)
     } else {
-      cameraFramerate = +settings.framerate
+      cameraShutter = +settings.shutter
+    }
+  }
+  
+  // Валидация усиления (gain)
+  if (settings.gain !== undefined) {
+    const validation = validateGain(settings.gain)
+    if (!validation.valid) {
+      errors.push(validation.error)
+    } else {
+      cameraGain = +settings.gain
+    }
+  }
+  
+  // Валидация режима экспозиции
+  if (settings.exposure !== undefined) {
+    if (!EXPOSURE_MODES.includes(settings.exposure)) {
+      errors.push(`Режим экспозиции должен быть одним из: ${EXPOSURE_MODES.join(', ')}`)
+    } else {
+      cameraExposure = settings.exposure
+    }
+  }
+  
+  // Валидация режима замера экспозиции
+  if (settings.metering !== undefined) {
+    if (!METERING_MODES.includes(settings.metering)) {
+      errors.push(`Режим замера должен быть одним из: ${METERING_MODES.join(', ')}`)
+    } else {
+      cameraMetering = settings.metering
+    }
+  }
+  
+  // Валидация баланса белого
+  if (settings.awb !== undefined) {
+    if (!AWB_MODES.includes(settings.awb)) {
+      errors.push(`Баланс белого должен быть одним из: ${AWB_MODES.join(', ')}`)
+    } else {
+      cameraAwb = settings.awb
+    }
+  }
+  
+  // Валидация яркости (-1.0 до 1.0)
+  if (settings.brightness !== undefined) {
+    const b = +settings.brightness
+    if (b < -1.0 || b > 1.0) {
+      errors.push('Яркость должна быть от -1.0 до 1.0')
+    } else {
+      cameraBrightness = b
+    }
+  }
+  
+  // Валидация контраста (0.0 до 2.0)
+  if (settings.contrast !== undefined) {
+    const c = +settings.contrast
+    if (c < 0.0 || c > 2.0) {
+      errors.push('Контраст должен быть от 0.0 до 2.0')
+    } else {
+      cameraContrast = c
+    }
+  }
+  
+  // Валидация насыщенности (0.0 до 2.0)
+  if (settings.saturation !== undefined) {
+    const s = +settings.saturation
+    if (s < 0.0 || s > 2.0) {
+      errors.push('Насыщенность должна быть от 0.0 до 2.0')
+    } else {
+      cameraSaturation = s
+    }
+  }
+  
+  // Валидация резкости (0.0 до 2.0)
+  if (settings.sharpness !== undefined) {
+    const s = +settings.sharpness
+    if (s < 0.0 || s > 2.0) {
+      errors.push('Резкость должна быть от 0.0 до 2.0')
+    } else {
+      cameraSharpness = s
     }
   }
   
@@ -279,6 +401,15 @@ const updateCameraSettings = (settings) => {
   process.env.PHOTO_SAVE_ENABLED = String(photoSaveEnabled)
   process.env.PHOTO_SAVE_DIR = photoSaveDir
   process.env.CAMERA_FRAMERATE = String(cameraFramerate)
+  process.env.CAMERA_SHUTTER = String(cameraShutter)
+  process.env.CAMERA_GAIN = String(cameraGain)
+  process.env.CAMERA_EXPOSURE = cameraExposure
+  process.env.CAMERA_METERING = cameraMetering
+  process.env.CAMERA_AWB = cameraAwb
+  process.env.CAMERA_BRIGHTNESS = String(cameraBrightness)
+  process.env.CAMERA_CONTRAST = String(cameraContrast)
+  process.env.CAMERA_SATURATION = String(cameraSaturation)
+  process.env.CAMERA_SHARPNESS = String(cameraSharpness)
   
   // Сохраняем настройки в .env файл
   try {
@@ -322,7 +453,16 @@ const saveSettingsToEnv = () => {
     'PHOTO_EXIF_ORIENTATION': String(photoExifOrientation),
     'PHOTO_SAVE_ENABLED': String(photoSaveEnabled),
     'PHOTO_SAVE_DIR': photoSaveDir,
-    'CAMERA_FRAMERATE': String(cameraFramerate)
+    'CAMERA_FRAMERATE': String(cameraFramerate),
+    'CAMERA_SHUTTER': String(cameraShutter),
+    'CAMERA_GAIN': String(cameraGain),
+    'CAMERA_EXPOSURE': cameraExposure,
+    'CAMERA_METERING': cameraMetering,
+    'CAMERA_AWB': cameraAwb,
+    'CAMERA_BRIGHTNESS': String(cameraBrightness),
+    'CAMERA_CONTRAST': String(cameraContrast),
+    'CAMERA_SATURATION': String(cameraSaturation),
+    'CAMERA_SHARPNESS': String(cameraSharpness)
   }
   
   // Разбиваем на строки и обновляем нужные
@@ -368,21 +508,12 @@ const saveSettingsToEnv = () => {
 
 const reloadCamera = () => {
   // Валидация перед перезагрузкой
-  const resolutionValidation = validateResolution(photoWidth, photoHeight)
-  const fpsValidation = validateFPS(cameraFramerate)
+  const modeValidation = validateCameraMode(photoWidth, photoHeight, cameraFramerate)
   
-  if (!resolutionValidation.valid) {
+  if (!modeValidation.valid) {
     return {
       success: false,
-      error: resolutionValidation.error,
-      settings: getCameraSettings()
-    }
-  }
-  
-  if (!fpsValidation.valid) {
-    return {
-      success: false,
-      error: fpsValidation.error,
+      error: modeValidation.error,
       settings: getCameraSettings()
     }
   }
@@ -435,8 +566,7 @@ const reloadCamera = () => {
             success: true,
             settings: getCameraSettings(),
             warnings: [
-              resolutionValidation.warning,
-              fpsValidation.warning
+              modeValidation.warning
             ].filter(Boolean)
           })
         }
