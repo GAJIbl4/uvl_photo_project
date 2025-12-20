@@ -167,6 +167,8 @@ const webSocketEngine = (ref, stateCb, openCb) => new Promise((disconnectCb) => 
   });
 });
 
+const { useState, useEffect, useRef, useMemo } = window;
+
 const App = () => {
   const [state, setState] = useState({});
   const [connectionState, setConnectionState] = useState({});
@@ -257,103 +259,103 @@ const App = () => {
   };
 
   return (
-    preact.h("div", { class: "root" },
-    connectionState !== 'connected' && preact.h(Shield, { message: shieldMessage, progress: true, logo: true }),
-    preact.h("div", { class: "controls" },
-    preact.h("h1", null, "UVL Photo Project"),
-    preact.h("div", { style: "flex:1" }),
-    preact.h("div", { style: "font-size:1.5em;z-index:10", onClick: () => setHideDev((v) => !v) }, { connected: '🟢', disconnected: '🔴', connecting: '🟠' }[connectionState])
+    window.preact.h("div", { class: "root" },
+    connectionState !== 'connected' && window.preact.h(Shield, { message: shieldMessage, progress: true, logo: true }),
+    window.preact.h("div", { class: "controls" },
+    window.preact.h("h1", null, "UVL Photo Project"),
+    window.preact.h("div", { style: "flex:1" }),
+    window.preact.h("div", { style: "font-size:1.5em;z-index:10", onClick: () => setHideDev((v) => !v) }, { connected: '🟢', disconnected: '🔴', connecting: '🟠' }[connectionState])
     ),
-    preact.h("div", { class: "main" },
-    preact.h("div", { class: "panel left" },
-    preact.h("div", { class: "photo-section" },
-    preact.h("h2", null, "Последняя фотография"),
+    window.preact.h("div", { class: "main" },
+    window.preact.h("div", { class: "panel left" },
+    window.preact.h("div", { class: "photo-section" },
+    window.preact.h("h2", null, "Последняя фотография"),
     state.lastPhotoImage ? (
-    preact.h("div", { class: "photo-container" },
-    preact.h("img", { src: state.lastPhotoImage, alt: "Last photo", style: "max-width:100%;max-height:60vh;object-fit:contain;" }),
-    preact.h("div", { style: "margin-top:0.5em;font-size:0.9em;color:#aaa;" },
-    "ID: ", state.lastPhoto?.id || 'N/A', preact.h("br"),
+    window.preact.h("div", { class: "photo-container" },
+    window.preact.h("img", { src: state.lastPhotoImage, alt: "Last photo", style: "max-width:100%;max-height:60vh;object-fit:contain;" }),
+    window.preact.h("div", { style: "margin-top:0.5em;font-size:0.9em;color:#aaa;" },
+    "ID: ", state.lastPhoto?.id || 'N/A', window.preact.h("br"),
     "Время: ", formatDate(state.lastPhoto?.timestamp)
     )
     ) : state.lastPhoto ? (
-    preact.h("div", null, "Загрузка фотографии...")
+    window.preact.h("div", null, "Загрузка фотографии...")
     ) : (
-    preact.h("div", { style: "color:#aaa;" }, "Нет фотографий")
+    window.preact.h("div", { style: "color:#aaa;" }, "Нет фотографий")
     )
     ),
-    preact.h("div", { class: "controls-section", style: "margin-top:1em;" },
-    preact.h("h2", null, "Управление"),
-    preact.h("div", { style: "display:flex;flex-direction:column;gap:0.5em;" },
-    preact.h("button", { onClick: handleDownloadArchive }, "Выгрузить архив фотографий"),
-    preact.h("button", { onClick: handleDeleteAll, style: "background:#f44336;color:white;" }, "Очистить все фотографии")
+    window.preact.h("div", { class: "controls-section", style: "margin-top:1em;" },
+    window.preact.h("h2", null, "Управление"),
+    window.preact.h("div", { style: "display:flex;flex-direction:column;gap:0.5em;" },
+    window.preact.h("button", { onClick: handleDownloadArchive }, "Выгрузить архив фотографий"),
+    window.preact.h("button", { onClick: handleDeleteAll, style: "background:#f44336;color:white;" }, "Очистить все фотографии")
     )
     )
     ),
-    preact.h("div", { class: "panel right" },
-    preact.h("div", { class: "settings-section" },
-    preact.h("h2", null, "Настройки камеры"),
-    preact.h("div", { style: "display:flex;flex-direction:column;gap:0.5em;" },
-    preact.h("label", null,
+    window.preact.h("div", { class: "panel right" },
+    window.preact.h("div", { class: "settings-section" },
+    window.preact.h("h2", null, "Настройки камеры"),
+    window.preact.h("div", { style: "display:flex;flex-direction:column;gap:0.5em;" },
+    window.preact.h("label", null,
     "Ширина:",
-    preact.h("input", { 
+    window.preact.h("input", { 
       type: "number", 
       value: cameraSettings.width || '', 
       onChange: (e) => setCameraSettings({...cameraSettings, width: +e.target.value}),
       style: "width:100%;"
     })
     ),
-    preact.h("label", null,
+    window.preact.h("label", null,
     "Высота:",
-    preact.h("input", { 
+    window.preact.h("input", { 
       type: "number", 
       value: cameraSettings.height || '', 
       onChange: (e) => setCameraSettings({...cameraSettings, height: +e.target.value}),
       style: "width:100%;"
     })
     ),
-    preact.h("label", null,
+    window.preact.h("label", null,
     "EXIF ориентация:",
-    preact.h("input", { 
+    window.preact.h("input", { 
       type: "number", 
       value: cameraSettings.exifOrientation || '', 
       onChange: (e) => setCameraSettings({...cameraSettings, exifOrientation: +e.target.value}),
       style: "width:100%;"
     })
     ),
-    preact.h("label", null,
-    preact.h("input", { 
+    window.preact.h("label", null,
+    window.preact.h("input", { 
       type: "checkbox", 
       checked: cameraSettings.saveEnabled || false,
       onChange: (e) => setCameraSettings({...cameraSettings, saveEnabled: e.target.checked})
     }),
     " Сохранять фотографии на диск"
     ),
-    preact.h("label", null,
+    window.preact.h("label", null,
     "Директория сохранения:",
-    preact.h("input", { 
+    window.preact.h("input", { 
       type: "text", 
       value: cameraSettings.saveDir || '', 
       onChange: (e) => setCameraSettings({...cameraSettings, saveDir: e.target.value}),
       style: "width:100%;"
     })
     ),
-    preact.h("div", { style: "display:flex;gap:0.5em;margin-top:0.5em;" },
-    preact.h("button", { onClick: handleUpdateSettings }, "Сохранить настройки"),
-    preact.h("button", { onClick: handleReloadCamera }, "Перезагрузить камеру")
+    window.preact.h("div", { style: "display:flex;gap:0.5em;margin-top:0.5em;" },
+    window.preact.h("button", { onClick: handleUpdateSettings }, "Сохранить настройки"),
+    window.preact.h("button", { onClick: handleReloadCamera }, "Перезагрузить камеру")
     )
     )
     ),
     !hideDev &&
-    preact.h(preact.Fragment, null,
-    preact.h(AutoScroll, { class: "box", style: "margin-top:1em;" },
-    preact.h("b", null, "log"),
+    window.preact.h(window.preact.Fragment, null,
+    window.preact.h(AutoScroll, { class: "box", style: "margin-top:1em;" },
+    window.preact.h("b", null, "log"),
     logsHtml.map((__html, i) =>
-    preact.h("pre", { key: i, dangerouslySetInnerHTML: { __html } })
+    window.preact.h("pre", { key: i, dangerouslySetInnerHTML: { __html } })
     )
     ),
-    preact.h("div", { class: "box", style: "margin-top:1em;" },
-    preact.h("b", null, "state"),
-    preact.h("pre", null, JSON.stringify(state, null, 2))
+    window.preact.h("div", { class: "box", style: "margin-top:1em;" },
+    window.preact.h("b", null, "state"),
+    window.preact.h("pre", null, JSON.stringify(state, null, 2))
     )
     )
 
@@ -375,10 +377,10 @@ const stringifyMessage = (val) => {
 
 const Shield = ({ progress = false, logo = false, message = undefined }) => {
   return (
-    preact.h("div", { class: "shield_overlay" },
-    !!logo && preact.h("img", { src: "logo.svg", style: "width:150px;height:61px;object-fit:cover;" }),
-    !!progress && preact.h("div", { class: "progress" }),
-    message !== undefined && preact.h("pre", { style: "white-space:pre-wrap;text-align:center;font-size:0.8rem;color:#aaaa" }, stringifyMessage(message))
+    window.preact.h("div", { class: "shield_overlay" },
+    !!logo && window.preact.h("img", { src: "logo.svg", style: "width:150px;height:61px;object-fit:cover;" }),
+    !!progress && window.preact.h("div", { class: "progress" }),
+    message !== undefined && window.preact.h("pre", { style: "white-space:pre-wrap;text-align:center;font-size:0.8rem;color:#aaaa" }, stringifyMessage(message))
     ));
 };
 
@@ -393,7 +395,17 @@ const AutoScroll = ({ as: As = 'div', ...props }) => {
     if (bottom < padding)
     requestAnimationFrame(() => ref.scrollTo(0, ref.scrollHeight));
   }, [ref, props]);
-  return preact.h(As, _extends({ ref: asRef }, props));
+  return window.preact.h(As, _extends({ ref: asRef }, props));
 };
 
-waitLoadAll(Object.values(sounds)).then(() => preact.render(preact.h(App, null), document.body));
+waitLoadAll(Object.values(sounds)).then(() => {
+  if (typeof window.preact === 'undefined') {
+    console.error('Preact is not loaded');
+    return;
+  }
+  if (typeof useState === 'undefined') {
+    console.error('Preact hooks are not loaded');
+    return;
+  }
+  window.preact.render(window.preact.h(App, null), document.body);
+});
