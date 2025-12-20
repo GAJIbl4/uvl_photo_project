@@ -19,7 +19,7 @@ const {
   getPhotoList,
   deleteAllPhotos
 } = require('./photo')
-//require('./dashboard-make')
+require('./dashboard-make')
 
 const textEncoder = new TextEncoder()
 const textDecoder = new TextDecoder()

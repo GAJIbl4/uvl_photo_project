@@ -121,7 +121,28 @@ const webSocketEngine = (ref, stateCb, openCb) => new Promise((disconnectCb) => 
       a.textContent = 'Download';
       a.click();
       URL.revokeObjectURL(url);
-      //setTimeout(() => URL.revokeObjectURL(url), 30000)
+    } else if (name === 'lastPhoto') {
+      const [photoId, photoData] = splitPayload(payload);
+      const blob = new Blob([Uint8Array.from(atob(photoData), c => c.charCodeAt(0))], { type: 'image/jpeg' });
+      const url = URL.createObjectURL(blob);
+      stateCb(state => ({ ...state, lastPhotoImage: url, lastPhotoId: photoId }));
+    } else if (name === 'photosArchive') {
+      const blob = new Blob([Uint8Array.from(atob(payload), c => c.charCodeAt(0))], { type: 'application/zip' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `photos_${new Date().toISOString().split('T')[0]}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else if (name === 'cameraSettings') {
+      try {
+        const settings = JSON.parse(payload);
+        stateCb(state => ({ ...state, cameraSettings: settings }));
+      } catch (err) {
+        console.error('Failed to parse camera settings:', err);
+      }
+    } else if (name === 'info') {
+      alert(payload);
     } else
     if (name === 'error') {
       alert(payload);
@@ -150,6 +171,8 @@ const App = () => {
   const [state, setState] = useState({});
   const [connectionState, setConnectionState] = useState({});
   const [shieldMessage, setShieldMessage] = useState('');
+  const [cameraSettings, setCameraSettings] = useState({});
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const hardDisconnected = useRef(true);
   const wsRef = useRef(null);
   const sendIfConnected = (...args) => wsRef.current?.send?.(...args);
@@ -159,6 +182,10 @@ const App = () => {
       setConnectionState('connecting');
       await webSocketEngine(wsRef, setState, (socket) => {
         setConnectionState('connected');
+        socket.send('getCameraSettings');
+        if (state.lastPhoto?.path) {
+          socket.send('getLastPhoto');
+        }
       }).then((hard) => hardDisconnected.current = hard);
       setConnectionState('disconnected');
       await sleep(1000);
@@ -179,9 +206,16 @@ const App = () => {
   }, [connectionState]);
 
   useEffect(() => {
-    if (state.table?.current_pallet && state.barcode)
-    beep('standard_signal.wav');
-  }, [state.table?.current_pallet]);
+    if (state.cameraSettings) {
+      setCameraSettings(state.cameraSettings);
+    }
+  }, [state.cameraSettings]);
+
+  useEffect(() => {
+    if (state.lastPhoto?.path && connectionState === 'connected') {
+      sendIfConnected('getLastPhoto');
+    }
+  }, [state.lastPhoto?.id, connectionState]);
 
   const logsHtml = useMemo(() => (state.logs || []).map(htmlAnsify), [state.logs]);
 
@@ -197,55 +231,135 @@ const App = () => {
     });
   }, []);
 
+  const handleDownloadArchive = () => {
+    sendIfConnected('downloadPhotosArchive');
+  };
+
+  const handleDeleteAll = () => {
+    if (confirm('Вы уверены, что хотите удалить все фотографии? Это действие нельзя отменить.')) {
+      sendIfConnected('deleteAllPhotos');
+    }
+  };
+
+  const handleUpdateSettings = () => {
+    sendIfConnected(`updateCameraSettings:${JSON.stringify(cameraSettings)}`);
+  };
+
+  const handleReloadCamera = () => {
+    if (confirm('Перезагрузить камеру с новыми настройками?')) {
+      sendIfConnected('reloadCamera');
+    }
+  };
+
+  const formatDate = (timestamp) => {
+    if (!timestamp) return '';
+    return new Date(timestamp).toLocaleString('ru-RU');
+  };
+
   return (
     preact.h("div", { class: "root" },
     connectionState !== 'connected' && preact.h(Shield, { message: shieldMessage, progress: true, logo: true }),
     preact.h("div", { class: "controls" },
-    preact.h("h1", null, state.table?.company_name, ' ', state.table?.alley_name, ' ', preact.h("span", { style: "font-size:0.8em" }, state.table?.pilot_name)),
+    preact.h("h1", null, "UVL Photo Project"),
     preact.h("div", { style: "flex:1" }),
     preact.h("div", { style: "font-size:1.5em;z-index:10", onClick: () => setHideDev((v) => !v) }, { connected: '🟢', disconnected: '🔴', connecting: '🟠' }[connectionState])
     ),
     preact.h("div", { class: "main" },
     preact.h("div", { class: "panel left" },
-    preact.h("div", { class: "rack_table_container minibox" },
-    state.table ?
-    preact.h(Table, { table: state.table, key: state.table?.alley_name }) :
-
-    'No rack loaded'
-
-    ),
-    preact.h("div", { class: "panel rack_table_controls" },
-    preact.h("div", { class: "barcode" },
-    preact.h("pre", { style: "font-size:2rem;" }, state.barcode || 'Scan a code'),
-    preact.h("div", { style: "margin-top:1em;" }, "Uniqie filters:",
-
-    (state.table?.unique_filters || []).map((v, i) => preact.h("pre", { key: i }, "[", v.join(' | '), "]"))
-    ),
-    preact.h("div", { style: "margin-top:1em;" }, "Extra filters:",
-
-    (state.table?.extra_filters || []).map((v, i) => preact.h("pre", { key: i }, "[", v.join(' | '), "]"))
+    preact.h("div", { class: "photo-section" },
+    preact.h("h2", null, "Последняя фотография"),
+    state.lastPhotoImage ? (
+    preact.h("div", { class: "photo-container" },
+    preact.h("img", { src: state.lastPhotoImage, alt: "Last photo", style: "max-width:100%;max-height:60vh;object-fit:contain;" }),
+    preact.h("div", { style: "margin-top:0.5em;font-size:0.9em;color:#aaa;" },
+    "ID: ", state.lastPhoto?.id || 'N/A', preact.h("br"),
+    "Время: ", formatDate(state.lastPhoto?.timestamp)
+    )
+    ) : state.lastPhoto ? (
+    preact.h("div", null, "Загрузка фотографии...")
+    ) : (
+    preact.h("div", { style: "color:#aaa;" }, "Нет фотографий")
     )
     ),
-    preact.h("div", { class: "image" }, preact.h("img", { src: (state.osd_scan_status || 'logo') + '.svg' }))
+    preact.h("div", { class: "controls-section", style: "margin-top:1em;" },
+    preact.h("h2", null, "Управление"),
+    preact.h("div", { style: "display:flex;flex-direction:column;gap:0.5em;" },
+    preact.h("button", { onClick: handleDownloadArchive }, "Выгрузить архив фотографий"),
+    preact.h("button", { onClick: handleDeleteAll, style: "background:#f44336;color:white;" }, "Очистить все фотографии")
+    )
+    )
+    ),
+    preact.h("div", { class: "panel right" },
+    preact.h("div", { class: "settings-section" },
+    preact.h("h2", null, "Настройки камеры"),
+    preact.h("div", { style: "display:flex;flex-direction:column;gap:0.5em;" },
+    preact.h("label", null,
+    "Ширина:",
+    preact.h("input", { 
+      type: "number", 
+      value: cameraSettings.width || '', 
+      onChange: (e) => setCameraSettings({...cameraSettings, width: +e.target.value}),
+      style: "width:100%;"
+    })
+    ),
+    preact.h("label", null,
+    "Высота:",
+    preact.h("input", { 
+      type: "number", 
+      value: cameraSettings.height || '', 
+      onChange: (e) => setCameraSettings({...cameraSettings, height: +e.target.value}),
+      style: "width:100%;"
+    })
+    ),
+    preact.h("label", null,
+    "EXIF ориентация:",
+    preact.h("input", { 
+      type: "number", 
+      value: cameraSettings.exifOrientation || '', 
+      onChange: (e) => setCameraSettings({...cameraSettings, exifOrientation: +e.target.value}),
+      style: "width:100%;"
+    })
+    ),
+    preact.h("label", null,
+    preact.h("input", { 
+      type: "checkbox", 
+      checked: cameraSettings.saveEnabled || false,
+      onChange: (e) => setCameraSettings({...cameraSettings, saveEnabled: e.target.checked})
+    }),
+    " Сохранять фотографии на диск"
+    ),
+    preact.h("label", null,
+    "Директория сохранения:",
+    preact.h("input", { 
+      type: "text", 
+      value: cameraSettings.saveDir || '', 
+      onChange: (e) => setCameraSettings({...cameraSettings, saveDir: e.target.value}),
+      style: "width:100%;"
+    })
+    ),
+    preact.h("div", { style: "display:flex;gap:0.5em;margin-top:0.5em;" },
+    preact.h("button", { onClick: handleUpdateSettings }, "Сохранить настройки"),
+    preact.h("button", { onClick: handleReloadCamera }, "Перезагрузить камеру")
+    )
     )
     ),
     !hideDev &&
-    preact.h("div", { class: "panel right" },
-    preact.h(AutoScroll, { class: "box" },
+    preact.h(preact.Fragment, null,
+    preact.h(AutoScroll, { class: "box", style: "margin-top:1em;" },
     preact.h("b", null, "log"),
     logsHtml.map((__html, i) =>
     preact.h("pre", { key: i, dangerouslySetInnerHTML: { __html } })
     )
     ),
-    preact.h("div", { class: "box" },
+    preact.h("div", { class: "box", style: "margin-top:1em;" },
     preact.h("b", null, "state"),
     preact.h("pre", null, JSON.stringify(state, null, 2))
     )
     )
 
     )
+    )
     ));
-
 };
 
 const stringifyMessage = (val) => {
@@ -266,7 +380,6 @@ const Shield = ({ progress = false, logo = false, message = undefined }) => {
     !!progress && preact.h("div", { class: "progress" }),
     message !== undefined && preact.h("pre", { style: "white-space:pre-wrap;text-align:center;font-size:0.8rem;color:#aaaa" }, stringifyMessage(message))
     ));
-
 };
 
 const AutoScroll = ({ as: As = 'div', ...props }) => {
@@ -282,104 +395,5 @@ const AutoScroll = ({ as: As = 'div', ...props }) => {
   }, [ref, props]);
   return preact.h(As, _extends({ ref: asRef }, props));
 };
-
-const Table = ({ table, ...rest }) => {
-  const currentTableRef = useRef(null);
-  const currentPalleteRef = useRef(null);
-  const [palletCellWidth, setPalletCellWidth] = useState(0);
-  const balk_list = [];
-  let balk_max = 0;
-  for (const width of table.balk_list) {
-    balk_max += width;
-    balk_list.push(balk_max);
-  }
-  const cols = table.column_headers.length + 1;
-  const current_pallet_show = table.current_pallet <= table.column_headers.length * table.row_headers.length;
-  const cl = (v) => ['NO_TAG', 'EMPTY', 'UNREADABLE', undefined].includes(v) ? v : 'BARCODE';
-  useEffect(() => {
-    currentTableRef.current?.parentElement?.scrollTo?.({ left: table.current_pallet_col * palletCellWidth, behavior: 'instant' });
-  }, [table.alley_name, table.current_pallet_col, palletCellWidth]);
-
-  const currentPalletRef = useCallback((el) => {
-    const width = el?.getBoundingClientRect?.()?.width;
-    if (width) {
-      currentPalleteRef.current = el;
-      setPalletCellWidth(width);
-    }
-  }, []);
-
-  return (
-    preact.h("table", _extends({ ref: currentTableRef }, rest, { class: "rack_table", style: `font-size:1rem;min-width:${cols * 3}em` }),
-    preact.h("tr", null, preact.h("td", null, ' '),
-    table.column_headers.map((v, coli) => preact.h("td", { class: cx({ balk: balk_list.includes(coli + 1) }), key: v }, preact.h("b", null, v)))
-    ),
-    table.table.map((row, rowi) =>
-    preact.h("tr", { key: rowi },
-    preact.h("td", null, preact.h("b", null, table.row_headers[rowi])),
-    row.map((col, coli) => {
-      const current_pallet = current_pallet_show && table.current_pallet_row === rowi && table.current_pallet_col === coli;
-      const balk = balk_list.includes(coli + 1);
-      return (
-        preact.h("td", { ref: current_pallet ? currentPalletRef : undefined, key: coli, class: cx({ balk, current_pallet }, cl(col[0])) },
-        col.join(', ')
-        ));
-
-    })
-    )
-    )
-    ));
-
-};
-
-// AlleyPicker component removed - no longer needed
-const _AlleyPicker = ({ onAlley, alleyNames, defaultAlley, defaultPilot, warehouseName, tableWarehouseName, exisintgResults }) => {
-  const [pilot, setPilot] = useState(defaultPilot);
-  const [alley, setAlley] = useState(defaultAlley);
-  const reflyAlley = tableWarehouseName === warehouseName && defaultAlley === alley || exisintgResults.includes(`${warehouseName}/${alley}.jsonl`);
-  const onLoadClick = useCallback(() => {
-    if (reflyAlley)
-    if (!confirm(`Refly alley ${alley}?\nExisting data will be deleted, are you sure?`))
-    return;
-    onAlley({ pilot, alley });
-  }, [pilot, alley, reflyAlley]);
-  return preact.h(preact.Fragment, null,
-  preact.h("input", { placeholder: "Pilot name", value: pilot, onChange: (e) => setPilot(e.target.value), defaultValue: defaultPilot }),
-  preact.h("select", { value: alley, onChange: (e) => setAlley(e.target.value), defaultValue: defaultAlley },
-  alleyNames.map((v) => preact.h("option", { key: v, value: v }, v))
-  ),
-  preact.h("input", { type: "button", value: reflyAlley ? 'Refly' : 'Load alley', onClick: onLoadClick, disabled: !pilot || !alley })
-  );
-};
-
-const JsonFileLoader = ({ prompt = 'Open .json file', onJson = identity, confirm: confirmText = false }) => {
-  const fileInputRef = useRef(null);
-  const handleChange = useCallback((event) => {
-    const input = event.target;
-    if (!input.files.length) {
-      return;
-    }
-    const selectedFile = input.files.item(0);
-    const fileReader = new FileReader();
-    fileReader.addEventListener('load', (e) => {
-      if (confirmText && !confirm(confirmText)) return;
-      onJson({ name: selectedFile.name, json: JSON.parse(e.target.result) });
-    });
-    fileReader.readAsText(selectedFile);
-  }, [onJson, confirmText]);
-  const handleClick = useCallback(() => {
-    if (!fileInputRef.current) return;
-    fileInputRef.current.value = null;
-    fileInputRef.current.click();
-  }, []);
-  return (
-    preact.h(preact.Fragment, null,
-    preact.h("input", { type: "button", value: prompt, onClick: handleClick }),
-    preact.h("input", { ref: fileInputRef, type: "file", onChange: handleChange, accept: ".json", hidden: true })
-    ));
-
-};
-
-//window.addEventListener('load', () => preact.render(<App />, document.body))
-
 
 waitLoadAll(Object.values(sounds)).then(() => preact.render(preact.h(App, null), document.body));
