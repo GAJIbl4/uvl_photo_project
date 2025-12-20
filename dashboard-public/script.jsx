@@ -307,22 +307,39 @@ const App = () => {
             <h2>Настройки камеры</h2>
             <div style="display:flex;flex-direction:column;gap:0.5em;">
               <label>
-                Ширина:
-                <input 
-                  type="number" 
-                  value={cameraSettings.width || ''} 
-                  onChange={e => setCameraSettings({...cameraSettings, width: +e.target.value})}
+                Разрешение:
+                <select 
+                  value={cameraSettings.width && cameraSettings.height ? `${cameraSettings.width}x${cameraSettings.height}` : ''}
+                  onChange={e => {
+                    const [width, height] = e.target.value.split('x').map(v => +v)
+                    if (width && height) {
+                      setCameraSettings({...cameraSettings, width, height})
+                    }
+                  }}
                   style="width:100%;"
-                />
+                >
+                  <option value="">Выберите разрешение</option>
+                  {(cameraSettings.validResolutions || []).map((res, i) => (
+                    <option key={i} value={`${res.width}x${res.height}`}>
+                      {res.label}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label>
-                Высота:
-                <input 
-                  type="number" 
-                  value={cameraSettings.height || ''} 
-                  onChange={e => setCameraSettings({...cameraSettings, height: +e.target.value})}
+                FPS (частота кадров):
+                <select 
+                  value={cameraSettings.framerate || ''}
+                  onChange={e => setCameraSettings({...cameraSettings, framerate: +e.target.value})}
                   style="width:100%;"
-                />
+                >
+                  <option value="">Выберите FPS</option>
+                  {(cameraSettings.validFPS || []).map((fps, i) => (
+                    <option key={i} value={fps}>
+                      {fps} FPS
+                    </option>
+                  ))}
+                </select>
               </label>
               <label>
                 EXIF ориентация:
