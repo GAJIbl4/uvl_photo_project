@@ -185,16 +185,7 @@ const App = () => {
 
   const logsHtml = useMemo(() => (state.logs || []).map(htmlAnsify), [state.logs])
 
-  const onLoadWarehouseJson = useCallback(({ json, name }) => {
-    sendIfConnected('warehouseJson:' + JSON.stringify({ ...json, name: name.slice(0, -5) }))
-  }, [])
-
-  const savedResultsOptionsRef = useRef(null)
-  const alleyInputRef = useRef(null)
-
   const [hideDev, setHideDev] = useState(true)
-
-  const sameCompany = state.copterSoft?.warehouseName === state.table?.company_name
 
   useEffect(() => {
     document.addEventListener('keydown', event => {
@@ -212,24 +203,6 @@ const App = () => {
       <div class="controls">
         <h1>{state.table?.company_name}{' '}{state.table?.alley_name}{' '}<span style="font-size:0.8em">{state.table?.pilot_name}</span></h1>
         <div style="flex:1"></div>
-        {!!(state.copterSoft?.warehouseName && state.table?.company_name) &&
-          <AlleyPicker
-            key={state.table.pilot_name + state.table.alley_name}
-            onAlley={params => sendIfConnected('loadAlley:' + JSON.stringify(params))}
-            alleyNames={state.copterSoft?.alleyNames || []}
-            defaultPilot={state.table.pilot_name}
-            defaultAlley={state.table.alley_name}
-            warehouseName={state.copterSoft.warehouseName}
-            tableWarehouseName={state.table.company_name}
-            exisintgResults={state.copterSoft.savedResults}
-          />
-        }
-        <div style="flex:1"></div>
-        <JsonFileLoader onJson={onLoadWarehouseJson} prompt="Import Warehouse JSON" style="font-size:small" confirm="Override Warehouse JSON configuration, are you sure?" />
-        <input type="button" value="Delete all saved results" onClick={() => {
-          if (confirm(`Delete all saved results from drone?\nAll existing files will be deleted, are you sure?`))
-            sendIfConnected('deleteAllCopterSoftReports')
-        }} />
         <div style="font-size:1.5em;z-index:10" onClick={() => setHideDev(v => !v)}>{{ connected: '🟢', disconnected: '🔴', connecting: '🟠' }[connectionState]}</div>
       </div>
       <div class="main">
@@ -254,17 +227,6 @@ const App = () => {
               </div>
             </div>
             <div class="image"><img src={(state.osd_scan_status || 'logo') + '.svg'} /></div>
-          </div>
-          <div class="results_controls">
-            <select onClick={() => sendIfConnected('getSavedResults')} ref={savedResultsOptionsRef}>
-              {(state.copterSoft?.savedResults || []).map(v =>
-                <option key={v} value={v}>{v}</option>
-              )}
-            </select>
-            <input type="button" value="Download inventory result" onClick={() => sendIfConnected('downloadCopterSoftReport:' + savedResultsOptionsRef.current.value)} />
-            <input type="button" value="Load alley" onClick={() => {
-              sendIfConnected('loadAlleyFromFile:' + savedResultsOptionsRef.current.value)
-            }} />
           </div>
         </div>
         {!hideDev &&
@@ -367,25 +329,6 @@ const Table = ({ table, ...rest }) => {
       )}
     </table>
   )
-}
-
-const AlleyPicker = ({ onAlley, alleyNames, defaultAlley, defaultPilot, warehouseName, tableWarehouseName, exisintgResults }) => {
-  const [pilot, setPilot] = useState(defaultPilot)
-  const [alley, setAlley] = useState(defaultAlley)
-  const reflyAlley = (tableWarehouseName === warehouseName && defaultAlley === alley) || exisintgResults.includes(`${warehouseName}/${alley}.jsonl`)
-  const onLoadClick = useCallback(() => {
-    if (reflyAlley)
-      if (!confirm(`Refly alley ${alley}?\nExisting data will be deleted, are you sure?`))
-        return
-    onAlley({ pilot, alley })
-  }, [pilot, alley, reflyAlley])
-  return <>
-    <input placeholder="Pilot name" value={pilot} onChange={e => setPilot(e.target.value)} defaultValue={defaultPilot} />
-    <select value={alley} onChange={e => setAlley(e.target.value)} defaultValue={defaultAlley}>
-      {alleyNames.map(v => <option key={v} value={v}>{v}</option>)}
-    </select>
-    <input type="button" value={reflyAlley ? 'Refly' : 'Load alley'} onClick={onLoadClick} disabled={!pilot || !alley} />
-  </>
 }
 
 const JsonFileLoader = ({ prompt = 'Open .json file', onJson = identity, confirm: confirmText = false }) => {

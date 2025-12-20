@@ -185,16 +185,7 @@ const App = () => {
 
   const logsHtml = useMemo(() => (state.logs || []).map(htmlAnsify), [state.logs]);
 
-  const onLoadWarehouseJson = useCallback(({ json, name }) => {
-    sendIfConnected('warehouseJson:' + JSON.stringify({ ...json, name: name.slice(0, -5) }));
-  }, []);
-
-  const savedResultsOptionsRef = useRef(null);
-  const alleyInputRef = useRef(null);
-
   const [hideDev, setHideDev] = useState(true);
-
-  const sameCompany = state.copterSoft?.warehouseName === state.table?.company_name;
 
   useEffect(() => {
     document.addEventListener('keydown', (event) => {
@@ -212,24 +203,6 @@ const App = () => {
     preact.h("div", { class: "controls" },
     preact.h("h1", null, state.table?.company_name, ' ', state.table?.alley_name, ' ', preact.h("span", { style: "font-size:0.8em" }, state.table?.pilot_name)),
     preact.h("div", { style: "flex:1" }),
-    !!(state.copterSoft?.warehouseName && state.table?.company_name) &&
-    preact.h(AlleyPicker, {
-      key: state.table.pilot_name + state.table.alley_name,
-      onAlley: (params) => sendIfConnected('loadAlley:' + JSON.stringify(params)),
-      alleyNames: state.copterSoft?.alleyNames || [],
-      defaultPilot: state.table.pilot_name,
-      defaultAlley: state.table.alley_name,
-      warehouseName: state.copterSoft.warehouseName,
-      tableWarehouseName: state.table.company_name,
-      exisintgResults: state.copterSoft.savedResults }
-    ),
-
-    preact.h("div", { style: "flex:1" }),
-    preact.h(JsonFileLoader, { onJson: onLoadWarehouseJson, prompt: "Import Warehouse JSON", style: "font-size:small", confirm: "Override Warehouse JSON configuration, are you sure?" }),
-    preact.h("input", { type: "button", value: "Delete all saved results", onClick: () => {
-        if (confirm(`Delete all saved results from drone?\nAll existing files will be deleted, are you sure?`))
-        sendIfConnected('deleteAllCopterSoftReports');
-      } }),
     preact.h("div", { style: "font-size:1.5em;z-index:10", onClick: () => setHideDev((v) => !v) }, { connected: '🟢', disconnected: '🔴', connecting: '🟠' }[connectionState])
     ),
     preact.h("div", { class: "main" },
@@ -254,17 +227,6 @@ const App = () => {
     )
     ),
     preact.h("div", { class: "image" }, preact.h("img", { src: (state.osd_scan_status || 'logo') + '.svg' }))
-    ),
-    preact.h("div", { class: "results_controls" },
-    preact.h("select", { onClick: () => sendIfConnected('getSavedResults'), ref: savedResultsOptionsRef },
-    (state.copterSoft?.savedResults || []).map((v) =>
-    preact.h("option", { key: v, value: v }, v)
-    )
-    ),
-    preact.h("input", { type: "button", value: "Download inventory result", onClick: () => sendIfConnected('downloadCopterSoftReport:' + savedResultsOptionsRef.current.value) }),
-    preact.h("input", { type: "button", value: "Load alley", onClick: () => {
-        sendIfConnected('loadAlleyFromFile:' + savedResultsOptionsRef.current.value);
-      } })
     )
     ),
     !hideDev &&
@@ -369,7 +331,8 @@ const Table = ({ table, ...rest }) => {
 
 };
 
-const AlleyPicker = ({ onAlley, alleyNames, defaultAlley, defaultPilot, warehouseName, tableWarehouseName, exisintgResults }) => {
+// AlleyPicker component removed - no longer needed
+const _AlleyPicker = ({ onAlley, alleyNames, defaultAlley, defaultPilot, warehouseName, tableWarehouseName, exisintgResults }) => {
   const [pilot, setPilot] = useState(defaultPilot);
   const [alley, setAlley] = useState(defaultAlley);
   const reflyAlley = tableWarehouseName === warehouseName && defaultAlley === alley || exisintgResults.includes(`${warehouseName}/${alley}.jsonl`);

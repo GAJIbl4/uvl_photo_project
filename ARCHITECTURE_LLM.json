@@ -26,8 +26,7 @@
           "ui.js",
           "photo.js",
           "rc.js",
-          "adapters.js",
-          "copter-soft.js"
+          "adapters.js"
         ],
         "key_variables": {
           "droneId": "ID дрона из переменных окружения",
@@ -164,14 +163,7 @@
           "mavlinkUdpClientIp": "IP адрес подключенного клиента через MAVLink UDP"
         },
         "events": [
-          "warehouseJson",
-          "getSavedResults",
-          "loadAlley",
-          "goto",
-          "timestamp",
-          "downloadCopterSoftReport",
-          "deleteAllCopterSoftReports",
-          "loadAlleyFromFile"
+          "timestamp"
         ]
       },
       {
@@ -297,56 +289,6 @@
           "fsExists"
         ]
       },
-      {
-        "name": "copter-soft.js",
-        "type": "module",
-        "purpose": "Управление данными склада и результатами инвентаризации",
-        "class": "CopterSoft",
-        "extends": "EventEmitter",
-        "key_methods": {
-          "reloadWarehouse": "Перезагрузка склада из файла",
-          "overwriteWarehouse": "Перезапись склада",
-          "getSavedResults": "Получение списка сохранённых результатов",
-          "getSavedResult": "Получение сохранённого результата (base64)",
-          "deleteSavedResult": "Удаление результата",
-          "deleteAllSavedResults": "Удаление всех результатов",
-          "getSavedResultFilename": "Получение пути к файлу результата",
-          "overwriteLoadedAlleyFilename": "Сохранение имени загруженной аллеи"
-        }
-      },
-      {
-        "name": "http-server.js",
-        "type": "module",
-        "purpose": "HTTP сервер для скачивания результатов инвентаризации",
-        "key_functions": {
-          "startResultDownloadServer": "Запуск сервера для скачивания TAR архивов с результатами"
-        }
-      },
-      {
-        "name": "box-counting.js",
-        "type": "module",
-        "purpose": "Модуль для работы с подсчётом коробок (альтернативный режим работы)",
-        "key_functions": {
-          "protocolPackMsg": "Упаковка сообщения протокола",
-          "sendReq": "Отправка запроса"
-        },
-        "events": {
-          "req": "Получен запрос от клиента",
-          "totalBoxes": "Получено количество коробок",
-          "palletBottomVisible": "Видимость дна паллеты"
-        }
-      },
-      {
-        "name": "index-box-counting.js",
-        "type": "alternative_entry",
-        "purpose": "Альтернативная точка входа для режима подсчёта коробок",
-        "differences_from_index_js": [
-          "Использует box-counting.js вместо protocol.js",
-          "Работает с задачами сканирования (alley, bin, zone)",
-          "Сохраняет результаты в boxCountingReport.json",
-          "Управляет направлением полёта (forward/backward)"
-        ]
-      }
     ]
   },
   "data_flows": [
@@ -504,43 +446,10 @@
         "description": "Директория для сохранения фотографий (создаётся автоматически, если не существует)"
       }
     },
-    "realsense": {
-      "REALSENSEPY_EN": {
-        "default": "false",
-        "description": "Включить RealSense"
-      },
-      "REALSENSEPY_UDP_HOST": {
-        "default": "localhost",
-        "description": "Хост UDP для RealSense"
-      },
-      "REALSENSEPY_UDP_PORT": {
-        "default": "14552",
-        "description": "Порт UDP для RealSense"
-      }
-    },
-    "copter_soft": {
-      "WAREHOUSE_FILE": {
-        "description": "Путь к файлу склада"
-      },
-      "WAREHOUSE_LOADED_ALLEY_FILE": {
-        "description": "Путь к файлу загруженной аллеи"
-      },
-      "WAREHOUSE_RESULTS_DIR": {
-        "description": "Директория результатов"
-      },
-      "WAREHOUSE_RESULTS_TAR_SERVER_PORT": {
-        "default": "8082",
-        "description": "Порт HTTP сервера для скачивания результатов"
-      }
-    },
     "general": {
       "DRONE_ID": {
         "default": "00",
         "description": "ID дрона"
-      },
-      "COPTER_SOFT_EN": {
-        "default": "false",
-        "description": "Включить модуль CopterSoft"
       }
     }
   },

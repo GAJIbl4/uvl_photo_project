@@ -87,8 +87,6 @@
 - `mavlinkUdpEn`, `mavlinkUdpHost`, `mavlinkUdpPort` - параметры UDP для MAVLink
 - `rcEmptyCh`, `rcRescanCh`, `rcNoTagCh`, `rcUnreadableCh`, `rcPhotoCh`, `rcScanoffCh`, `rcAlleySwitchCh` - номера RC каналов
 - `rcEmptyPwm`, `rcRescanPwm`, `rcNoTagPwm`, `rcUnreadablePwm`, `rcPhotoPwm`, `rcScanoffPwm`, `rcAlleyNextPwm`, `rcAlleyPrevPwm` - значения PWM для кнопок
-- `realsensepyEn`, `realsensepyUdpHost`, `realsensepyUdpPort` - параметры для RealSense
-- `copterSoftEn` - включение модуля CopterSoft
 - `takePhotoRequestId` - ID текущего запроса на фото
 
 **Основные функции:**
@@ -239,11 +237,7 @@ mintt:topic?param1=value1&param2=value2\r\n
 - `warehouseJson` - загрузка JSON склада
 - `getSavedResults` - запрос сохранённых результатов
 - `loadAlley` - загрузка аллеи
-- `goto` - команда перемещения
 - `timestamp` - установка временной метки
-- `downloadCopterSoftReport` - скачивание отчёта
-- `deleteAllCopterSoftReports` - удаление всех отчётов
-- `loadAlleyFromFile` - загрузка аллеи из файла
 
 **Формат WebSocket сообщений:**
 - `ping` → `pong`
@@ -363,7 +357,6 @@ mintt:topic?param1=value1&param2=value2\r\n
 
 **Использование:**
 - Подключение MAVLink через UDP
-- Подключение RealSense через UDP
 
 ### 11. utils.js
 
@@ -385,33 +378,7 @@ mintt:topic?param1=value1&param2=value2\r\n
 - `getFiles(dir, acc)` - рекурсивное получение списка файлов
 - `fsExists(filename)` - проверка существования файла
 
-### 12. copter-soft.js
-
-**Назначение**: Управление данными склада и результатами инвентаризации.
-
-**Класс: CopterSoft extends EventEmitter**
-
-**Свойства:**
-- `resultsLocation` - директория для сохранения результатов
-- `warehouse` - объект склада (JSON)
-- `loadedAlleyFilename` - имя файла загруженной аллеи
-
-**Методы:**
-- `reloadWarehouse()` - перезагрузка склада из файла
-- `overwriteWarehouse(desc)` - перезапись склада
-- `getSavedResults()` - получение списка сохранённых результатов
-- `getSavedResult(name)` - получение сохранённого результата (base64)
-- `deleteSavedResult(name)` - удаление результата
-- `deleteAllSavedResults()` - удаление всех результатов
-- `getSavedResultFilename(name)` - получение пути к файлу результата
-- `overwriteLoadedAlleyFilename(file)` - сохранение имени загруженной аллеи
-
-**Переменные окружения:**
-- `WAREHOUSE_FILE` - путь к файлу склада
-- `WAREHOUSE_LOADED_ALLEY_FILE` - путь к файлу загруженной аллеи
-- `WAREHOUSE_RESULTS_DIR` - директория результатов
-
-### 13. lic.js
+### 12. lic.js
 
 **Назначение**: Проверка лицензии.
 
@@ -427,45 +394,6 @@ mintt:topic?param1=value1&param2=value2\r\n
 - Читает серийный номер из `/sys/firmware/devicetree/base/serial-number`
 - Читает лицензионный ключ из файла `LICENSE_KEY`
 - Проверяет HMAC-SHA256 подпись
-
-### 14. http-server.js
-
-**Назначение**: HTTP сервер для скачивания результатов инвентаризации.
-
-**Функции:**
-- `startResultDownloadServer(port, host, callback)` - запуск сервера
-  - Создаёт TAR архив с результатами
-  - Поддерживает скачивание по пути `/{warehouse}/{alley}.tar`
-  - Использует безопасные пути (защита от path traversal)
-
-### 15. box-counting.js
-
-**Назначение**: Модуль для работы с подсчётом коробок (альтернативный режим работы).
-
-**Экспорты:**
-- `protocolPackMsg(args)` - упаковка сообщения протокола
-- `hub` - EventEmitter для событий
-- `sendReq(req)` - отправка запроса
-
-**События:**
-- `req` - получен запрос от клиента
-- `totalBoxes` - получено количество коробок
-- `palletBottomVisible` - видимость дна паллеты
-
-**Сервисы:**
-- TCP сервер на порту 8081 (клиенты)
-- TCP клиент к сервису на порту 8082
-- UDP сервер на порту 8088 (видимость дна паллеты)
-
-### 16. index-box-counting.js
-
-**Назначение**: Альтернативная точка входа для режима подсчёта коробок.
-
-**Отличия от index.js:**
-- Использует `box-counting.js` вместо `protocol.js`
-- Работает с задачами сканирования (alley, bin, zone)
-- Сохраняет результаты в `boxCountingReport.json`
-- Управляет направлением полёта (forward/backward)
 
 ## Потоки данных
 
@@ -533,8 +461,6 @@ Dashboard / RC Channel 9
   → protocol.send('load_alley', {alley, pilot})
   → Python модуль
   → protocol.on('table_json')
-  → copterSoft.overwriteLoadedAlleyFilename()
-  → ui.update({palletAlley, palletLevel, palletName})
 ```
 
 ## Переменные окружения
@@ -571,21 +497,8 @@ Dashboard / RC Channel 9
 - `PHOTO_HEIGHT` - высота фотографии (по умолчанию: `1520`)
 - `PHOTO_EXIF_ORIENTATION` - ориентация EXIF (по умолчанию: `6`)
 
-### RealSense
-- `REALSENSEPY_EN` - включить RealSense (по умолчанию: `false`)
-- `REALSENSEPY_CAMERA_ORIENTATION` - ориентация камеры RealSense
-- `REALSENSEPY_UDP_HOST` - хост UDP для RealSense (по умолчанию: `localhost`)
-- `REALSENSEPY_UDP_PORT` - порт UDP для RealSense (по умолчанию: `14552`)
-
-### CopterSoft
-- `WAREHOUSE_FILE` - путь к файлу склада
-- `WAREHOUSE_LOADED_ALLEY_FILE` - путь к файлу загруженной аллеи
-- `WAREHOUSE_RESULTS_DIR` - директория результатов
-- `WAREHOUSE_RESULTS_TAR_SERVER_PORT` - порт HTTP сервера для скачивания результатов (по умолчанию: `8082`)
-
 ### Общие
 - `DRONE_ID` - ID дрона (по умолчанию: `00`)
-- `COPTER_SOFT_EN` - включить модуль CopterSoft (по умолчанию: `false`)
 
 ## Схема взаимодействия компонентов
 
@@ -605,8 +518,6 @@ Dashboard / RC Channel 9
        ├───► photo.js ───► camera.js ───► libcamera-vid
        │
        ├───► rc.js (обработка RC channels)
-       │
-       ├───► copter-soft.js (управление складом)
        │
        └───► lic.js (проверка лицензии)
 ```

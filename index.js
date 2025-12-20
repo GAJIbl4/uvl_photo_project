@@ -16,7 +16,6 @@ const packageJson = require('./package.json')
 const { checkButton } = require('./rc')
 const { udp, connect } = require('./adapters')
 const { default: CancelablePromise } = require('cancelable-promise')
-const CopterSoft = require('./copter-soft')
 
 const droneId = process.env.DRONE_ID || '00'
 
@@ -88,12 +87,6 @@ const rcScanoffPwm = +(process.env.RC_SCANOFF_PWM || 2006)
 const rcAlleyNextPwm = +(process.env.RC_ALLEY_NEXT_PWM || 1025)
 const rcAlleyPrevPwm = +(process.env.RC_ALLEY_PREV_PWM || 1075)
 
-const realsensepyEn = process.env.REALSENSEPY_EN === 'true'
-const realsensepyCameraOrientation = process.env.REALSENSEPY_CAMERA_ORIENTATION
-const realsensepyUdpHost = process.env.REALSENSEPY_UDP_HOST || 'localhost'
-const realsensepyUdpPort = +(process.env.REALSENSEPY_UDP_PORT || 14552)
-
-const copterSoftEn = process.env.COPTER_SOFT_EN === 'true'
 const protocol = require('./protocol')
 
 const osdSp = new SerialPort(
@@ -326,32 +319,6 @@ if (mavlinkUdpEn) {
   console.log('[mavlink-udp]: Для подключения через Mission Planner установите MAVLINK_UDP_EN=true в .env')
 }
 
-if (realsensepyEn) connect(
-  mavSystem.connect('odom-udp'),
-  udp(realsensepyUdpHost, realsensepyUdpPort, v => console.log('[odom-udp]:', v))
-)
-
-const copterSoft = new CopterSoft()
-
-dashboard.on('warehouseJson', json => {
-  copterSoft.overwriteWarehouse(JSON.parse(json))
-  dashboard.setState('copterSoft', dashboardCopterSoftState(copterSoft))
-})
-
-const dashboardCopterSoftState = copterSoft => ({
-  warehouseName: copterSoft.warehouse ? copterSoft.warehouse.name || 'Unknown Warehouse' : 'No Warehouse loaded',
-  alleyNames: copterSoft.warehouse ? Object.keys(copterSoft.warehouse.warehouse) : [],
-  //uniq_filters: copterSoft.warehouse ? copterSoft.warehouse.uniq_filters : [],
-  //extra_filters: copterSoft.warehouse ? copterSoft.warehouse.extra_filters : [],
-})
-
-dashboard.setState('copterSoft', dashboardCopterSoftState(copterSoft))
-
-dashboard.on('getSavedResults', () => {
-  copterSoft.getSavedResults().then(v => dashboard.setState('copterSoft.savedResults', v))
-})
-
-copterSoft.getSavedResults().then(v => dashboard.setState('copterSoft.savedResults', v))
 
 // Python module commands removed - no longer needed for photo mode
 // dashboard.on('loadAlley', json => {
@@ -373,18 +340,6 @@ dashboard.on('timestamp', tsStr => {
   )
 })
 
-dashboard.on('downloadCopterSoftReport', (name, ws) => {
-  if (!name) return
-  copterSoft.getSavedResult(name)
-    .then(data => ws.send(`download:${name}:${data}`))
-    .catch(err => ws.send(`error:${err.message}`))
-})
-
-dashboard.on('deleteAllCopterSoftReports', (ws) => {
-  copterSoft.deleteAllSavedResults()
-    .then(() => copterSoft.getSavedResults().then(v => dashboard.setState('copterSoft.savedResults', v)))
-    .catch(err => ws.send(`error:${err.message}`))
-})
 
 // Python module commands removed - no longer needed for photo mode
 // dashboard.on('loadAlleyFromFile', (name) => {

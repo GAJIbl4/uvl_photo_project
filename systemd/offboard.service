@@ -1,7 +1,7 @@
 [Unit]
 Description=UVL Inventory Offboard service
 Wants=network-online.target
-After=network-online.target realsense.service
+After=network-online.target
 
 [Service]
 ExecStart=/home/pi/uvl-inventory-offboard/systemd/offboard.service.sh
