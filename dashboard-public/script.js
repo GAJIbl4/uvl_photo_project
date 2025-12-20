@@ -175,7 +175,11 @@ const App = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = window.useState(false);
   const hardDisconnected = window.useRef(true);
   const wsRef = window.useRef(null);
-  const sendIfConnected = (...args) => wsRef.current?.send?.(...args);
+  const sendIfConnected = (...args) => {
+    if (wsRef.current && wsRef.current.send) {
+      wsRef.current.send(...args);
+    }
+  };
 
   window.useEffect(async () => {
     while (true) {
@@ -183,7 +187,7 @@ const App = () => {
       await webSocketEngine(wsRef, setState, (socket) => {
         setConnectionState('connected');
         socket.send('getCameraSettings');
-        if (state.lastPhoto?.path) {
+        if (state.lastPhoto && state.lastPhoto.path) {
           socket.send('getLastPhoto');
         }
       }).then((hard) => hardDisconnected.current = hard);
@@ -192,7 +196,11 @@ const App = () => {
     }
   }, []);
 
-  window.useEffect(() => window.ipcRenderer?.on?.('message', (evt, v) => setShieldMessage(v)), []);
+  window.useEffect(() => {
+    if (window.ipcRenderer && window.ipcRenderer.on) {
+      window.ipcRenderer.on('message', (evt, v) => setShieldMessage(v));
+    }
+  }, []);
 
   window.useEffect(() => {
     if (hardDisconnected.current) {
@@ -212,10 +220,10 @@ const App = () => {
   }, [state.cameraSettings]);
 
   window.useEffect(() => {
-    if (state.lastPhoto?.path && connectionState === 'connected') {
+    if (state.lastPhoto && state.lastPhoto.path && connectionState === 'connected') {
       sendIfConnected('getLastPhoto');
     }
-  }, [state.lastPhoto?.id, connectionState]);
+  }, [state.lastPhoto && state.lastPhoto.id, connectionState]);
 
   const logsHtml = window.useMemo(() => (state.logs || []).map(htmlAnsify), [state.logs]);
 
@@ -268,18 +276,14 @@ const App = () => {
     window.preact.h("div", { class: "panel left" },
     window.preact.h("div", { class: "photo-section" },
     window.preact.h("h2", null, "Последняя фотография"),
-    state.lastPhotoImage ? (
-    window.preact.h("div", { class: "photo-container" },
+    state.lastPhotoImage ? window.preact.h("div", { class: "photo-container" },
     window.preact.h("img", { src: state.lastPhotoImage, alt: "Last photo", style: "max-width:100%;max-height:60vh;object-fit:contain;" }),
     window.preact.h("div", { style: "margin-top:0.5em;font-size:0.9em;color:#aaa;" },
-    "ID: ", state.lastPhoto?.id || 'N/A', window.preact.h("br"),
-    "Время: ", formatDate(state.lastPhoto?.timestamp)
+    "ID: ", (state.lastPhoto && state.lastPhoto.id) || 'N/A', window.preact.h("br"),
+    "Время: ", formatDate(state.lastPhoto && state.lastPhoto.timestamp)
     )
-    ) : state.lastPhoto ? (
-    window.preact.h("div", null, "Загрузка фотографии...")
-    ) : (
-    window.preact.h("div", { style: "color:#aaa;" }, "Нет фотографий")
-    )
+    ) : (state.lastPhoto ? window.preact.h("div", null, "Загрузка фотографии...")
+    : window.preact.h("div", { style: "color:#aaa;" }, "Нет фотографий"))
     ),
     window.preact.h("div", { class: "controls-section", style: "margin-top:1em;" },
     window.preact.h("h2", null, "Управление"),
