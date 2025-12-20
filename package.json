@@ -1,26 +1,39 @@
 {
-  "name": "uvl-photo-project",
-  "version": "0.1.1",
-  "description": "Система автоматического фотографирования для Raspberry Pi с Ardupilot",
+  "name": "uvl-inventory-offboard",
+  "version": "7.4.0",
   "main": "index.js",
-  "type": "module",
+  "bin": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "npx @yao-pkg/pkg . --target=linux"
   },
-  "keywords": [
-    "ardupilot",
-    "mavlink",
-    "camera",
-    "raspberry-pi"
-  ],
-  "author": "",
-  "license": "ISC",
+  "keywords": [],
+  "author": "Leonid Romanovskii <romanovskii.leonid@gmail.com>",
   "dependencies": {
-    "@serialport/parser-readline": "^12.0.0",
-    "serialport": "^12.0.0",
-    "winston": "^3.11.0",
-    "mavlink": "^2.0.0"
+    "@serialport/parser-delimiter": "^10.5.0",
+    "cancelable-promise": "^4.3.1",
+    "debounce": "^1.2.1",
+    "dotenv": "^16.0.3",
+    "finalhandler": "^1.2.0",
+    "jspack": "^0.0.4",
+    "lodash": "^4.17.21",
+    "piexifjs": "^1.0.4",
+    "serialport": "^10.5.0",
+    "serve-static": "^1.15.0",
+    "split-frames": "^2.4.4",
+    "tar": "^7.4.3",
+    "ws": "^8.13.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.23.2",
+    "@babel/plugin-transform-react-jsx": "^7.22.15",
+    "@yao-pkg/pkg": "^6.1.1"
+  },
+  "description": "",
+  "pkg": {
+    "outputPath": "dist",
+    "assets": [
+      "node_modules/@serialport/bindings-cpp/prebuilds",
+      "dashboard-public"
+    ]
   }
 }
-

@@ -1,0 +1,13 @@
+[Unit]
+Description=System hacks plus force sync command to avoid corrupted files
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+ExecStart=/home/pi/uvl-inventory-offboard/systemd/hacks.service.sh
+TimeoutStopSec=5s
+Restart=always
+User=pi
+
+[Install]
+WantedBy=multi-user.target

@@ -1,253 +1,437 @@
-#!/usr/bin/env node
+'use strict'
 
-import { SerialPort } from 'serialport';
-import { MavlinkClient } from './mavlink-client.js';
-import { CameraHandler } from './camera-handler.js';
-import * as ui from './ui.js';
-import * as osd from './osd.js';
-import { checkButton } from './rc.js';
-import {
-  PHOTOS_DIR,
-  MAVLINK_CONFIG,
-  RC_CHANNEL,
-  RC_THRESHOLD,
-  CAMERA_CONFIG,
-  OSD_CONFIG,
-} from './config.js';
-import winston from 'winston';
+require('dotenv').config()
 
-// Настройка логирования
-const logFormat = winston.format.combine(
-  winston.format.timestamp(),
-  winston.format.errors({ stack: true }),
-  winston.format.printf(({ timestamp, level, message, stack }) => {
-    return `${timestamp} [${level.toUpperCase()}] ${message}${stack ? '\n' + stack : ''}`;
-  })
-);
+const lic = require('./lic')
 
-const logger = winston.createLogger({
-  level: 'info',
-  format: logFormat,
-  transports: [
-    new winston.transports.File({ filename: '/home/pi/photo_project.log' }),
-    new winston.transports.Console()
-  ]
-});
+const { SerialPort } = require('serialport')
+const { DelimiterParser } = require('@serialport/parser-delimiter')
+const dashboard = require('./dashboard')
+const osd = require('./osd')
+const ui = require('./ui')
+const { takePhoto } = require('./photo')
+const { MavSystem, mav2 } = require('./mavlink')
 
-// Глобальные переменные
-let running = true;
-let mavlinkClient = null;
-let cameraHandler = null;
-let rcTriggered = false;
+const { log, fsExists } = require('./utils')
+const { networkInterfaces } = require('os')
+const packageJson = require('./package.json')
+const { checkButton } = require('./rc')
+const { udp, connect } = require('./adapters')
+const { default: CancelablePromise } = require('cancelable-promise')
+const CopterSoft = require('./copter-soft')
 
-// Обработчик сигналов
-process.on('SIGINT', () => {
-  logger.info('Получен сигнал завершения, останавливаюсь...');
-  running = false;
-});
+const droneId = process.env.DRONE_ID || '00'
 
-process.on('SIGTERM', () => {
-  logger.info('Получен сигнал завершения, останавливаюсь...');
-  running = false;
-});
-
-async function main() {
-  logger.info('='.repeat(60));
-  logger.info('Запуск системы фотографирования с Ardupilot');
-  logger.info('='.repeat(60));
-  logger.info(`Папка для фотографий: ${PHOTOS_DIR}`);
-  logger.info(`MAVLink UDP: ${MAVLINK_CONFIG.udpHost}:${MAVLINK_CONFIG.udpPort}`);
-  logger.info(`RC канал для триггера: ${RC_CHANNEL}`);
-  logger.info(`Порог активации: ${RC_THRESHOLD}`);
-
-  try {
-    // Инициализация MAVLink клиента через UDP
-    logger.info('Инициализация MAVLink через UDP...');
-    mavlinkClient = new MavlinkClient(
-      MAVLINK_CONFIG.udpHost,
-      MAVLINK_CONFIG.udpPort,
-      MAVLINK_CONFIG.systemId,
-      MAVLINK_CONFIG.componentId
-    );
-
-    mavlinkClient.on('error', (err) => {
-      logger.error(`[mavlink]: Ошибка UDP: ${err.message}`);
-    });
-
-    mavlinkClient.on('connected', () => {
-      logger.info('[mavlink]: Подключение установлено!');
-    });
-
-    await mavlinkClient.connect();
-    logger.info('[mavlink]: Подключение установлено!');
-
-    // Инициализация камеры
-    logger.info('Инициализация камеры...');
-    cameraHandler = new CameraHandler(CAMERA_CONFIG, PHOTOS_DIR);
-    const cameraInitialized = await cameraHandler.initialize();
-    if (!cameraInitialized) {
-      logger.error('Не удалось инициализировать камеру');
-      mavlinkClient.close();
-      return 1;
-    }
-
-    // Инициализация OSD (если включен)
-    let osdSerial = null;
-    if (OSD_CONFIG.enabled) {
-      logger.info(`Инициализация OSD на порту ${OSD_CONFIG.port}...`);
-      try {
-        osdSerial = new SerialPort({
-          path: OSD_CONFIG.port,
-          baudRate: OSD_CONFIG.baudrate,
-          lock: false
-        });
-
-        osdSerial.on('error', (err) => {
-          logger.error(`[osd]: Ошибка последовательного порта: ${err.message}`);
-        });
-
-        // Настройка UI для OSD
-        ui.configure(osdSerial.write.bind(osdSerial), {
-          width: OSD_CONFIG.width,
-          height: OSD_CONFIG.height,
-          paddingTop: OSD_CONFIG.paddingTop,
-          paddingBottom: OSD_CONFIG.paddingBottom,
-          paddingRight: OSD_CONFIG.paddingRight,
-          paddingLeft: OSD_CONFIG.paddingLeft,
-        });
-
-        // Настройка layout OSD
-        ui.updateLayout({
-          mavlinkStatus: ['top', 'left', 'MAV: '],
-          cameraStatus: ['top', 'left +10', 'CAM: '],
-          photoCount: ['top +1', 'left', 'Photos: '],
-          lastPhoto: ['top +2', 'left', 'Last: '],
-          error: ['bottom', 'left', 'ERR: '],
-        });
-
-        logger.info('[osd]: OSD подключен успешно');
-        setTimeout(() => ui.render(), 2000);
-      } catch (err) {
-        logger.error(`Ошибка при инициализации OSD: ${err.message}`, { stack: err.stack });
-        osdSerial = null;
-      }
-    }
-
-    // Обработка RC_CHANNELS
-    mavlinkClient.on('rc_channels', msg => {
-      // Используем checkButton из исходного проекта
-      const buttonState = checkButton(msg, RC_CHANNEL, RC_THRESHOLD, 'PHOTO', 
-        () => {
-          // Callback при нажатии кнопки
-          if (!rcTriggered) {
-            rcTriggered = true;
-            const rcValue = msg[`chan${RC_CHANNEL}_raw`];
-            logger.info(`RC${RC_CHANNEL} активирован (значение: ${rcValue})`);
-
-            // Делаем фотографию
-            if (cameraHandler) {
-              cameraHandler.capturePhoto()
-                .then((photoPath) => {
-                  if (photoPath) {
-                    const photoCount = cameraHandler.getPhotoCount();
-                    const filename = photoPath.split('/').pop();
-                    
-                    // Обновляем OSD
-                    ui.update('photoCount', photoCount);
-                    ui.update('lastPhoto', filename);
-                    
-                    // Отправляем сообщение через MAVLink
-                    mavlinkClient.sendStatusText(`Photo #${photoCount} saved: ${filename}`);
-                    logger.info(`Фотография #${photoCount} сохранена: ${filename}`);
-                  } else {
-                    ui.update('error', 'Ошибка захвата фото');
-                    mavlinkClient.sendStatusText('ERROR: Ошибка захвата фото', 3); // MAV_SEVERITY_ERROR
-                    logger.error('Ошибка захвата фото');
-                  }
-                })
-                .catch((err) => {
-                  logger.error(`Ошибка при захвате фотографии: ${err.message}`);
-                  ui.update('error', 'Ошибка захвата фото');
-                  mavlinkClient.sendStatusText('ERROR: Ошибка захвата фото', 3);
-                });
-            }
-          }
-        },
-        () => {
-          // Callback при отпускании кнопки
-          if (rcTriggered) {
-            rcTriggered = false;
-            logger.debug(`RC${RC_CHANNEL} деактивирован`);
-          }
-        }
-      );
-    });
-
-    // Обновление статуса на OSD
-    ui.update('mavlinkStatus', 'MAV: ✓');
-    ui.update('cameraStatus', 'CAM: ✓');
-    ui.update('photoCount', cameraHandler.getPhotoCount());
-    
-    // Периодическое обновление статуса на OSD
-    setInterval(() => {
-      ui.update('mavlinkStatus', 'MAV: ✓');
-      ui.update('cameraStatus', 'CAM: ✓');
-      ui.update('photoCount', cameraHandler.getPhotoCount());
-    }, 1000);
-
-    mavlinkClient.sendStatusText('Система готова к работе');
-    logger.info('Система инициализирована, ожидание команд...');
-
-    // Основной цикл
-    let lastStatusLogTime = 0;
-    const statusLogInterval = 5000;
-
-    while (running) {
-      try {
-        // Периодическое обновление статуса
-        const currentTime = Date.now();
-        if (currentTime - lastStatusLogTime >= statusLogInterval) {
-          lastStatusLogTime = currentTime;
-          // Обновляем статус на OSD
-          ui.update('mavlinkStatus', 'MAV: ✓');
-          ui.update('cameraStatus', 'CAM: ✓');
-          ui.update('photoCount', cameraHandler.getPhotoCount());
-        }
-
-        await new Promise(resolve => setTimeout(resolve, 100));
-      } catch (err) {
-        logger.error(`Ошибка в основном цикле: ${err.message}`, { stack: err.stack });
-        ui.update('error', `Ошибка: ${err.message.slice(0, 20)}`);
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-    }
-  } catch (err) {
-    logger.error(`Критическая ошибка: ${err.message}`, { stack: err.stack });
-    return 1;
-  } finally {
-    logger.info('Завершение работы...');
-
-    if (cameraHandler) {
-      cameraHandler.close();
-    }
-
-    if (mavlinkClient) {
-      mavlinkClient.sendStatusText('Система завершает работу');
-      mavlinkClient.close();
-    }
-
-    logger.info('Работа завершена');
-  }
-
-  return 0;
+const getIp = () => {
+  const addrs = networkInterfaces().wlan0 || []
+  const addr = addrs.filter(v => v.family === 'IPv4')[0] || {}
+  return addr.address || undefined
 }
 
-// Запуск
-main()
-  .then((code) => {
-    process.exit(code || 0);
+console.log('[drone]: software:', packageJson.version)
+console.log('[drone]: id:', droneId)
+console.log('[drone]:', JSON.parse('"\u006c\u0069\u0063\u003a"'), ...Object.values(lic))
+
+const current = {
+  alley_name: undefined,
+  pilot_name: undefined
+}
+
+let droneIp
+setInterval(() => {
+  const ip = getIp()
+  if (ip !== droneIp) {
+    droneIp = ip
+    console.log('[drone]: ip changed', ip)
+  }
+}, 1000)
+
+const mavlinkSerialPath = process.env.MAVLINK_SERIAL_PATH || '/dev/ttyACM0'
+const mavlinkSerialBaud = +(process.env.MAVLINK_SERIAL_BAUD || 57600)
+const scannerPath = process.env.SCANNER_SERIAL_PATH || '/dev/ttyAMA0'
+const scannerBaud = +(process.env.SCANNER_SERIAL_BAUD || 115200)
+const scannerReconnectTimeout = +(process.env.SCANNER_SERIAL_RECONNECT_TIMEOUT || 0)
+const osdPath = process.env.OSD_SERIAL_PATH || scannerPath
+const osdBaud = +(process.env.OSD_SERIAL_BAUD || scannerBaud)
+
+const osdWidth = +(process.env.OSD_WIDTH || 30)
+const osdHeight = +(process.env.OSD_HEIGHT || 16)
+const osdPaddingTop = +(process.env.OSD_PADDING_TOP || 1)
+const osdPaddingBottom = +(process.env.OSD_PADDING_BOTTOM || 5)
+const osdPaddingRight = +(process.env.OSD_PADDING_RIGHT || 2)
+const osdPaddingLeft = +(process.env.OSD_PADDING_LEFT || 2)
+
+const mavlinkUdpEn = process.env.MAVLINK_UDP_EN === 'true'
+const mavlinkUdpHost = process.env.MAVLINK_UDP_HOST || '0.0.0.0'
+const mavlinkUdpPort = +(process.env.MAVLINK_UDP_PORT || 14550)
+const mavlinkSystemId = +(process.env.MAVLINK_SYSTEM_ID || 1)
+
+const rcEmptyCh = +(process.env.RC_EMPTY_CH || 6)
+const rcRescanCh = +(process.env.RC_RESCAN_CH || 6)
+const rcNoTagCh = +(process.env.RC_NO_TAG_CH || 6)
+const rcUnreadableCh = +(process.env.RC_UNREADABLE_CH || 6)
+const rcPhotoCh = +(process.env.RC_PHOTO_CH || 7)
+const rcScanoffCh = +(process.env.RC_SCANOFF_CH || 8)
+const rcAlleySwitchCh = +(process.env.RC_ALLEY_SWITCH_CH || 9)
+
+const rcEmptyPwm = +(process.env.RC_EMPTY_PWM || 1067)
+const rcRescanPwm = +(process.env.RC_RESCAN_PWM || 1249)
+const rcNoTagPwm = +(process.env.RC_NO_TAG_PWM || 1495)
+const rcUnreadablePwm = +(process.env.RC_UNREADABLE_PWM || 982)
+const rcPhotoPwm = +(process.env.RC_PHOTO_PWM || 2006)
+const rcScanoffPwm = +(process.env.RC_SCANOFF_PWM || 2006)
+const rcAlleyNextPwm = +(process.env.RC_ALLEY_NEXT_PWM || 1025)
+const rcAlleyPrevPwm = +(process.env.RC_ALLEY_PREV_PWM || 1075)
+
+const realsensepyEn = process.env.REALSENSEPY_EN === 'true'
+const realsensepyCameraOrientation = process.env.REALSENSEPY_CAMERA_ORIENTATION
+const realsensepyUdpHost = process.env.REALSENSEPY_UDP_HOST || 'localhost'
+const realsensepyUdpPort = +(process.env.REALSENSEPY_UDP_PORT || 14552)
+
+const copterSoftEn = process.env.COPTER_SOFT_EN === 'true'
+const protocol = require('./protocol')
+
+const osdSp = new SerialPort(
+  { path: osdPath, baudRate: osdBaud, lock: false },
+  () => {
+    console.log(`[osd]: ${osdPath}:${osdBaud}`)
+    setTimeout(onOSDConnected, 2000)
+  }
+)
+
+let scannerSp
+
+if (scannerPath === osdPath) {
+  scannerSp = osdSp
+  console.log(`[scanner]: ${scannerPath}:${scannerBaud}`)
+} else {
+  const scannerOpenCb = error => {
+    if (error){
+      console.log(`[scanner]: ${error?.message}`)
+      if (scannerReconnectTimeout)
+        scannerSp.emit('reconnect-after-timeout')
+    } else {
+      console.log(`[scanner]: ${scannerPath}:${scannerBaud}`)
+    }
+  }
+  scannerSp = new SerialPort(
+    { path: scannerPath, baudRate: scannerBaud, lock: false },
+    scannerOpenCb
+  )
+  scannerSp.on('close', error => {
+    console.log('[scanner]: closed:', error?.message)
+    if (scannerReconnectTimeout)
+      scannerSp.emit('reconnect-after-timeout')
   })
-  .catch((err) => {
-    logger.error(`Критическая ошибка: ${err.message}`, { stack: err.stack });
-    process.exit(1);
-  });
+  scannerSp.on('reconnect-after-timeout', () => setTimeout(() => scannerSp.open(scannerOpenCb), scannerReconnectTimeout))
+}
+
+
+// Scanner removed - no longer needed for photo mode
+// const scannerRl = scannerSp.pipe(new DelimiterParser({ delimiter: Buffer.from([0x0a]) }))
+
+// Python module events removed - no longer needed for photo mode
+
+ui.configure(osdSp.write.bind(osdSp), {
+  width: osdWidth,
+  height: osdHeight,
+  paddingTop: osdPaddingTop,
+  paddingBottom: osdPaddingBottom,
+  paddingRight: osdPaddingRight,
+  paddingLeft: osdPaddingLeft,
+})
+
+ui.updateLayout({
+  logo: () => [
+    ['center', 'center', 'UVL-INVENTORY'],
+    ['center +1', 'center', 'V' + packageJson.version]
+  ],
+
+  name: ['top', 'center', `UVL_${droneId}X`],
+  palletAlley: ['top +1', 'left'],
+  palletLevel: ['top +2', 'left'],
+  palletName: ['top +3', 'left'],
+  
+  connection: ['top +2', 'center'],
+
+  scanoff: ['top +2', 'left'],
+  scanStatusOk: v => !v ? [[], []] : [
+    ['center -1', 'center -4', [osd.ch.Checkmark1, osd.ch.Checkmark2]],
+    ['center', 'center -4', [osd.ch.Checkmark3, osd.ch.Checkmark4]]
+  ],
+  scanStatusNo: v => !v ? [[], []] : [
+    ['center +2', 'center -4', [osd.ch.Crossmark3, osd.ch.Crossmark4]],
+    ['center +1', 'center -4', [osd.ch.Crossmark1, osd.ch.Crossmark2]]
+  ],
+  button: ['center +1', 'left'],
+
+  barcode: ['bottom -3', 'center'],
+  infoMessage: ['bottom -2', 'center'],
+  palletMap: ['center +4', 'center'],
+  //positionRight: ['bottom', 'center'],
+})
+
+let showInfoMessageTimeout = undefined
+const showInfoMessage = (data, duration = 5000) => {
+  clearTimeout(showInfoMessageTimeout)
+  const text = String(data).toUpperCase()
+  ui.update('infoMessage', text)
+  console.log('[OSD Message]:', text)
+  showInfoMessageTimeout = setTimeout(
+    () => ui.update('infoMessage', false),
+    duration
+  )
+}
+
+const onOSDConnected = () => {
+  ui.render()
+  setTimeout(() => ui.updateLayout({ logo: () => [[], []] }, true), 5000)
+}
+
+let prevConnectionStatus = null
+setInterval(() => {
+  const status = connectionStatus()
+  if (status && status !== prevConnectionStatus)
+    console.log(`[status]: ${status} (${getIp() || 'noip'})`)
+  prevConnectionStatus = status
+  ui.update('connection', status)
+}, 500)
+
+// Python module events removed - no longer needed for photo mode
+
+const mavlinkSerial = new SerialPort(
+  { path: mavlinkSerialPath, baudRate: mavlinkSerialBaud, lock: false },
+  () => console.log(`[mavlink]: ${mavlinkSerialPath}:${mavlinkSerialBaud}`)
+)
+mavlinkSerial.on('error', console.log)
+
+const mavSystem = new MavSystem(mavlinkSystemId, recv => {
+  mavlinkSerial.on('data', recv)
+  mavlinkSerial.write = mavlinkSerial.write.bind(mavlinkSerial)
+  return mavlinkSerial.write
+}, {
+  RC_CHANNELS: 10
+})
+mavSystem.sendEnabled = true
+
+let buttonTimeoutId
+const handleButton = label => {
+  clearTimeout(buttonTimeoutId)
+  dashboard.setState('button', label)
+  ui.update('button', label)
+  buttonTimeoutId = setTimeout(() => ui.update('button', false), 2000)
+}
+
+let photoCounter = 0
+mavSystem.on('rc_channels', msg => {
+  checkButton(msg, rcPhotoCh, rcPhotoPwm, 'PHOTO', () => {
+    photoCounter++
+    const photoId = `photo_${Date.now()}_${photoCounter}`
+    handleButton('PHOTO')
+    takePhoto(photoId, (id, data) => {
+      if (data instanceof Error) {
+        showInfoMessage(data.message)
+      } else {
+        showInfoMessage(`Photo saved: ${id}`, 2000)
+        dashboard.setState('lastPhoto', { id, timestamp: Date.now() })
+        // Optionally save photo to file or send via protocol if needed
+        // protocol.send('photo', { id }, data)
+      }
+    })
+  })
+  
+  // Other buttons removed - no longer needed for photo mode
+  // checkButton(msg, rcEmptyCh, rcEmptyPwm, 'EMPTY', handleButton)
+  // checkButton(msg, rcRescanCh, rcRescanPwm, 'RESCAN', handleButton)
+  // checkButton(msg, rcNoTagCh, rcNoTagPwm, 'NO_TAG', handleButton)
+  // checkButton(msg, rcUnreadableCh, rcUnreadablePwm, 'UNREADABLE', handleButton)
+  // checkButton(msg, rcAlleySwitchCh, rcAlleyNextPwm, 'ALLEY_NEXT', nextAlley)
+  // checkButton(msg, rcAlleySwitchCh, rcAlleyPrevPwm, 'ALLEY_PREV', prevAlley)
+  // checkButton(msg, rcScanoffCh, rcScanoffPwm, 'SCANOFF',
+  //   () => ui.update('scanoff', 'SCANOFF'),
+  //   () => ui.update('scanoff', false)
+  // )
+})
+
+const dateOSD = () => new Date().toISOString().split('T')[0].replace(/-/g, '_')
+
+const connectionStatus = () => lic.ok
+  ? !lic.ntr
+    ? !lic.exp
+      ? mavlinkHeartbeat
+        ? getIp()
+          ? false
+          : 'NO IP'
+        : 'NO MAVLINK'
+      : JSON.parse('"\u004c\u0049\u0043\u0045\u004e\u0053\u0045\u0020\u0045\u0058\u0050\u0049\u0052\u0045\u0044"') + ' ' + dateOSD()
+    : JSON.parse('"\u004c\u0049\u0043\u0045\u004e\u0053\u0045\u0020\u0049\u004e\u0020\u0046\u0055\u0054\u0055\u0052\u0045"') + ' ' + dateOSD()
+  : JSON.parse('"\u004e\u004f\u0020\u004c\u0049\u0043\u0045\u004e\u0053\u0045"')
+
+let mavlinkHeartbeat = false
+let mavlinkHeartbeatTimeoutId
+let mavlinkHeartbeatTimeoutPromise = new CancelablePromise.resolve()
+const mavlinkHeartbitTimeoutStart = () => {
+  clearTimeout(mavlinkHeartbeatTimeoutId)
+  mavlinkHeartbeatTimeoutId = setTimeout(() => {
+    mavlinkHeartbeat = false
+    mavlinkSerial.close(() => {
+      mavlinkSerial.open(() => {
+        mavlinkHeartbeatTimeoutPromise.catch(() => { }).cancel()
+        mavlinkHeartbeatTimeoutPromise = mavSystem.requestInitialMessages().catch(() => { })
+        mavlinkHeartbitTimeoutStart()
+      })
+    })
+  }, 5000)
+}
+mavSystem.on('heartbeat', () => {
+  mavlinkHeartbeat = true
+  mavlinkHeartbitTimeoutStart()
+})
+mavlinkHeartbitTimeoutStart()
+
+let rcChannelsArdupilotFixInterval = null
+if (mavlinkUdpEn) connect(
+  mavSystem.connect('mavlink-udp'),
+  udp(
+    mavlinkUdpHost,
+    mavlinkUdpPort,
+    (v, twoWay) => {
+      console.log('[mavlink-udp]:', v)
+      if (twoWay && !rcChannelsArdupilotFixInterval)
+        rcChannelsArdupilotFixInterval = setInterval(
+          () => mavSystem.setMessageInterval('RC_CHANNELS', 10).catch(() => { }), 1000)
+    }
+  )
+)
+
+if (realsensepyEn) connect(
+  mavSystem.connect('odom-udp'),
+  udp(realsensepyUdpHost, realsensepyUdpPort, v => console.log('[odom-udp]:', v))
+)
+
+const copterSoft = new CopterSoft()
+
+dashboard.on('warehouseJson', json => {
+  copterSoft.overwriteWarehouse(JSON.parse(json))
+  dashboard.setState('copterSoft', dashboardCopterSoftState(copterSoft))
+})
+
+const dashboardCopterSoftState = copterSoft => ({
+  warehouseName: copterSoft.warehouse ? copterSoft.warehouse.name || 'Unknown Warehouse' : 'No Warehouse loaded',
+  alleyNames: copterSoft.warehouse ? Object.keys(copterSoft.warehouse.warehouse) : [],
+  //uniq_filters: copterSoft.warehouse ? copterSoft.warehouse.uniq_filters : [],
+  //extra_filters: copterSoft.warehouse ? copterSoft.warehouse.extra_filters : [],
+})
+
+dashboard.setState('copterSoft', dashboardCopterSoftState(copterSoft))
+
+dashboard.on('getSavedResults', () => {
+  copterSoft.getSavedResults().then(v => dashboard.setState('copterSoft.savedResults', v))
+})
+
+copterSoft.getSavedResults().then(v => dashboard.setState('copterSoft.savedResults', v))
+
+// Python module commands removed - no longer needed for photo mode
+// dashboard.on('loadAlley', json => {
+//   const params = JSON.parse(json)
+//   protocol.send('load_alley', params)
+// })
+
+// dashboard.on('goto', json => {
+//   const params = JSON.parse(json)
+//   protocol.send('goto', params)
+// })
+
+const child_process = require('node:child_process')
+dashboard.on('timestamp', tsStr => {
+  let timestamp = +tsStr
+  if (Date.now() < timestamp) child_process.exec(
+    `sudo date -s @${Math.round(timestamp/ 1000)}`,
+    err => err ? console.log(err) : null
+  ); else timestamp = Date.now()
+  lic.ntr = lic.vf >= timestamp
+  lic.exp = lic.vt <= timestamp
+})
+
+dashboard.on('downloadCopterSoftReport', (name, ws) => {
+  if (!name) return
+  copterSoft.getSavedResult(name)
+    .then(data => ws.send(`download:${name}:${data}`))
+    .catch(err => ws.send(`error:${err.message}`))
+})
+
+dashboard.on('deleteAllCopterSoftReports', (ws) => {
+  copterSoft.deleteAllSavedResults()
+    .then(() => copterSoft.getSavedResults().then(v => dashboard.setState('copterSoft.savedResults', v)))
+    .catch(err => ws.send(`error:${err.message}`))
+})
+
+// Python module commands removed - no longer needed for photo mode
+// dashboard.on('loadAlleyFromFile', (name) => {
+//   if (!name) return
+//   const file = copterSoft.getSavedResultFilename(name)
+//   protocol.send('load_alley_from_file', { file })
+// })
+
+// Python module events removed - no longer needed for photo mode
+// protocol.on('clientConnected', () => {
+//   protocol.send('refresh_state')
+//   const file = copterSoft.getSavedResultFilename()
+//   if (file)
+//     protocol.send('load_alley_from_file', { file })
+// })
+
+// protocol.on('table_json', (params, table_json) => {
+//   const table = JSON.parse(table_json)
+//   copterSoft.overwriteLoadedAlleyFilename(table.report_file)
+//   ui.update({ palletAlley: 'RCK ' + table.alley_name })
+//   current.alley_name = table.alley_name
+//   current.pilot_name = table.pilot_name
+//   dashboard.setState('table', table)
+// })
+
+// Alley management functions removed - no longer needed for photo mode
+// const nextAlleyName = (currName, offset = 1) => {
+//   const names = Object.keys(copterSoft.warehouse.warehouse)
+//   const currIndex = names.indexOf(currName)
+//   if (currIndex === -1) return undefined
+//   const nextIndex = (currIndex + names.length + offset) % names.length
+//   const nextName = names[nextIndex]
+//   return nextName
+// }
+
+// const loadExistingOrNewAlley = (alley, pilot) => {
+//   const file = copterSoft.getSavedResultFilename(
+//     `${copterSoft.warehouse.name}/${alley}.jsonl`
+//   )
+//   if (fsExists(file))
+//     protocol.send('load_alley_from_file', { file })
+//   else
+//     protocol.send('load_alley', { alley, pilot })
+// }
+
+// const nextAlley = () => {
+//   if (!current.alley_name) {
+//     showInfoMessage('no alley loaded')
+//     return
+//   }
+//   const nextName = nextAlleyName(current.alley_name, +1)
+//   if (!nextName) {
+//     showInfoMessage('next alley not found')
+//     return
+//   }
+//   loadExistingOrNewAlley(nextName, current.pilot_name)
+// }
+
+// const prevAlley = () => {
+//   if (!current.alley_name) {
+//     showInfoMessage('no alley loaded')
+//     return
+//   }
+//   const nextName = nextAlleyName(current.alley_name, -1)
+//   if (!nextName) {
+//     showInfoMessage('prev alley not found')
+//     return
+//   }
+//   loadExistingOrNewAlley(nextName, current.pilot_name)
+// }

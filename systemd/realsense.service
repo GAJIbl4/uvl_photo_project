@@ -1,0 +1,13 @@
+[Unit]
+Description=UVL Inventory Realsense service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+ExecStart=/home/pi/uvl-inventory-offboard/systemd/realsense.service.sh
+TimeoutStopSec=5s
+Restart=always
+User=pi
+
+[Install]
+WantedBy=multi-user.target

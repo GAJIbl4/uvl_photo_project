@@ -1,0 +1,580 @@
+{
+  "project": {
+    "name": "uvl-photo-project",
+    "version": "7.4.0",
+    "description": "Бортовой софт для дрона на Raspberry Pi для фотографирования по нажатию кнопки",
+    "platform": "Raspberry Pi",
+    "language": "JavaScript (Node.js)"
+  },
+  "documentation": {
+    "primary_reference": "ARCHITECTURE_LLM.json",
+    "human_readable": "ARCHITECTURE.md",
+    "rule": "При работе над проектом необходимо ориентироваться на ARCHITECTURE_LLM.json как на основной справочник. При каждом изменении архитектуры, добавлении новых модулей, функций или переменных - обязательно обновлять ARCHITECTURE_LLM.json. Этот файл используется LLM-ассистентами для понимания структуры проекта без необходимости анализа всего кода."
+  },
+  "entry_point": "index.js",
+  "architecture": {
+    "main_components": [
+      {
+        "name": "index.js",
+        "type": "main",
+        "purpose": "Точка входа, инициализация всех компонентов",
+        "dependencies": [
+          "mavlink/system.js",
+          "protocol.js",
+          "dashboard.js",
+          "osd.js",
+          "ui.js",
+          "photo.js",
+          "rc.js",
+          "adapters.js",
+          "copter-soft.js",
+          "lic.js"
+        ],
+        "key_variables": {
+          "droneId": "ID дрона из переменных окружения",
+          "mavlinkSerialPath": "Путь к последовательному порту MAVLink",
+          "osdPath": "Путь к последовательному порту OSD",
+          "photoCounter": "Счётчик фотографий для генерации уникальных ID"
+        },
+        "key_functions": {
+          "getIp": "Получение IP адреса интерфейса wlan0",
+          "connectionStatus": "Определение статуса подключения (лицензия, MAVLink, IP)",
+          "handleButton": "Обработка нажатий кнопок для отображения на OSD",
+          "showInfoMessage": "Отображение информационного сообщения на OSD"
+        },
+        "data_flows": [
+          {
+            "from": "rc_channels",
+            "to": "photo",
+            "description": "Каналы управления парсятся, кнопка PHOTO вызывает прямое фотографирование"
+          },
+          {
+            "from": "mavlink_heartbeat",
+            "to": "status",
+            "description": "Heartbeat от полётного контроллера используется для определения статуса подключения"
+          },
+          {
+            "from": "photo_button",
+            "to": "camera",
+            "description": "Нажатие кнопки PHOTO вызывает takePhoto() напрямую без ожидания запроса"
+          }
+        ]
+      },
+      {
+        "name": "mavlink/",
+        "type": "module",
+        "purpose": "Работа с протоколом MAVLink",
+        "files": [
+          {
+            "name": "system.js",
+            "class": "MavSystem",
+            "extends": "EventEmitter",
+            "key_methods": {
+              "send": "Отправка MAVLink сообщения",
+              "connect": "Создание адаптера для подключения внешних систем",
+              "subscribeTo": "Подписка на MAVLink сообщение",
+              "setMessageInterval": "Установка интервала отправки сообщения",
+              "getMission": "Получение миссии с полётного контроллера",
+              "setMission": "Установка миссии на полётный контроллер",
+              "arm": "Включение арматуры",
+              "disarm": "Выключение арматуры",
+              "takeOff": "Взлёт на заданную высоту",
+              "land": "Посадка",
+              "flyto": "Полёт к точке",
+              "setYaw": "Установка курса",
+              "heartbeat": "Отправка heartbeat сообщения"
+            },
+            "key_events": {
+              "heartbeat": "Получен heartbeat от полётного контроллера",
+              "rc_channels": "Получены данные RC каналов",
+              "message": "Получено любое MAVLink сообщение"
+            }
+          },
+          {
+            "name": "impl.js",
+            "purpose": "Реализация парсинга и обработки MAVLink сообщений",
+            "exports": {
+              "mav2": "Объект с константами и сообщениями MAVLink 2.0",
+              "MAVLink20Processor": "Класс для обработки MAVLink 2.0 сообщений",
+              "parse": "Функция парсинга буфера MAVLink сообщений",
+              "apm": "Константы режимов ArduPilot"
+            }
+          },
+          {
+            "name": "mission.js",
+            "purpose": "Работа с миссиями MAVLink",
+            "classes": [
+              {
+                "name": "MavMissionItem",
+                "methods": ["fromMavMessage", "fromQGCPlanItem", "mavMessage", "fromPoint", "isEqual"]
+              },
+              {
+                "name": "MavMission",
+                "methods": ["fromMavMessages", "fromQGCPlan", "toJSON", "mavMessages", "fromPoints", "asCoordinates", "isEqual"]
+              }
+            ]
+          },
+          {
+            "name": "geo.js",
+            "purpose": "Географические вычисления",
+            "functions": {
+              "global_distance": "Вычисление расстояния между двумя точками (формула гаверсинуса)",
+              "find_closest": "Поиск ближайшей точки",
+              "destination": "Вычисление точки назначения по смещению"
+            }
+          }
+        ]
+      },
+      {
+        "name": "protocol.js",
+        "type": "module",
+        "purpose": "Протокол связи (mintt) - оставлен для совместимости, но больше не используется для основной функциональности",
+        "class": "Protocol",
+        "extends": "EventEmitter",
+        "key_methods": {
+          "send": "Отправка сообщения всем подключённым клиентам",
+          "hasConnections": "Проверка наличия подключённых клиентов"
+        },
+        "message_format": "mintt:topic?param1=value1&param2=value2\\r\\n[body data]",
+        "note": "Протокол больше не используется для связи с Python модулем, так как Python модуль удалён"
+      },
+      {
+        "name": "dashboard.js",
+        "type": "module",
+        "purpose": "Веб-интерфейс для мониторинга и управления",
+        "class": "Dashboard",
+        "extends": "EventEmitter",
+        "services": {
+          "http": {
+            "port": 8080,
+            "purpose": "Статические файлы из dashboard-public/"
+          },
+          "websocket": {
+            "port": 8081,
+            "purpose": "Двусторонняя связь с клиентами"
+          }
+        },
+        "key_methods": {
+          "setState": "Установка состояния (поддерживает lodash пути)",
+          "log": "Логирование в дашборд"
+        },
+        "events": [
+          "warehouseJson",
+          "getSavedResults",
+          "loadAlley",
+          "goto",
+          "timestamp",
+          "downloadCopterSoftReport",
+          "deleteAllCopterSoftReports",
+          "loadAlleyFromFile"
+        ]
+      },
+      {
+        "name": "osd.js",
+        "type": "module",
+        "purpose": "Рендеринг OSD (On-Screen Display) для отправки на полётный контроллер",
+        "key_functions": {
+          "renderElement": "Рендеринг одного элемента OSD",
+          "renderElements": "Рендеринг массива элементов",
+          "posX": "Вычисление X координаты (поддержка 'left', 'right', 'center', числа)",
+          "posY": "Вычисление Y координаты (поддержка 'top', 'bottom', 'center', числа)",
+          "setGeometry": "Установка геометрии экрана OSD"
+        },
+        "element_format": "[0x55, 0x49, elem, y, x, length, ...data]",
+        "geometry": {
+          "width": "Ширина экрана OSD",
+          "height": "Высота экрана OSD",
+          "paddingTop": "Верхний отступ",
+          "paddingBottom": "Нижний отступ",
+          "paddingRight": "Правый отступ",
+          "paddingLeft": "Левый отступ"
+        }
+      },
+      {
+        "name": "ui.js",
+        "type": "module",
+        "purpose": "Управление UI элементами OSD",
+        "key_functions": {
+          "configure": "Настройка функции записи и геометрии",
+          "updateLayout": "Обновление макета элементов",
+          "update": "Обновление состояния элемента",
+          "render": "Рендеринг всех элементов (с debounce 100ms)"
+        },
+        "workflow": [
+          "Элементы регистрируются через updateLayout() с функцией рендеринга",
+          "Состояние обновляется через update()",
+          "Рендеринг происходит автоматически с debounce",
+          "Изменения отправляются через функцию write (обычно osdSp.write)"
+        ]
+      },
+      {
+        "name": "photo.js",
+        "type": "module",
+        "purpose": "Управление камерой и съёмка фотографий",
+        "key_functions": {
+          "takePhoto": "Съёмка фотографии с применением EXIF поворота. Принимает id и callback, возвращает JPEG данные или ошибку"
+        },
+        "dependencies": ["camera.js", "piexifjs"],
+        "key_variables": {
+          "photoWidth": "Ширина фотографии из PHOTO_WIDTH",
+          "photoHeight": "Высота фотографии из PHOTO_HEIGHT",
+          "photoExifOrientation": "Ориентация EXIF из PHOTO_EXIF_ORIENTATION"
+        }
+      },
+      {
+        "name": "camera.js",
+        "type": "module",
+        "purpose": "Обёртка над libcamera-vid для работы с камерой Raspberry Pi",
+        "key_functions": {
+          "Libcameravid": "Запуск libcamera-vid процесса с настраиваемыми параметрами",
+          "LibcameravidJPEGStream": "Поток JPEG кадров из libcamera-vid с настройками из конфигов"
+        },
+        "configurable_parameters": {
+          "width": "Ширина кадра (из options или по умолчанию 640)",
+          "height": "Высота кадра (из options или по умолчанию 480)",
+          "timeout": "Таймаут камеры из CAMERA_TIMEOUT (по умолчанию 0 - бесконечно)",
+          "framerate": "Частота кадров из CAMERA_FRAMERATE (по умолчанию 10)",
+          "codec": "Кодек (всегда MJPEG)"
+        }
+      },
+      {
+        "name": "rc.js",
+        "type": "module",
+        "purpose": "Обработка RC (Radio Control) каналов",
+        "key_functions": {
+          "checkButton": "Проверка нажатия кнопки на RC канале с debounce"
+        },
+        "parameters": {
+          "msg": "Сообщение RC_CHANNELS",
+          "ch": "Номер канала",
+          "ideal": "Идеальное значение PWM",
+          "label": "Метка кнопки",
+          "cbOn": "Callback при нажатии",
+          "cbOff": "Callback при отпускании"
+        }
+      },
+      {
+        "name": "adapters.js",
+        "type": "module",
+        "purpose": "Адаптеры для подключения внешних систем",
+        "key_functions": {
+          "udp": "Создание UDP адаптера",
+          "connect": "Соединение двух адаптеров",
+          "connectSync": "Синхронное соединение адаптеров"
+        }
+      },
+      {
+        "name": "utils.js",
+        "type": "module",
+        "purpose": "Вспомогательные утилиты",
+        "key_functions": [
+          "log",
+          "parseJson",
+          "paseUrl",
+          "shallowEqual",
+          "shallowEqualAll",
+          "once",
+          "subscribe",
+          "repeatRetryUntilTimeout",
+          "debounce",
+          "unbitmap_k",
+          "unbitmap_v",
+          "paramsJoin",
+          "getFiles",
+          "fsExists"
+        ]
+      },
+      {
+        "name": "copter-soft.js",
+        "type": "module",
+        "purpose": "Управление данными склада и результатами инвентаризации",
+        "class": "CopterSoft",
+        "extends": "EventEmitter",
+        "key_methods": {
+          "reloadWarehouse": "Перезагрузка склада из файла",
+          "overwriteWarehouse": "Перезапись склада",
+          "getSavedResults": "Получение списка сохранённых результатов",
+          "getSavedResult": "Получение сохранённого результата (base64)",
+          "deleteSavedResult": "Удаление результата",
+          "deleteAllSavedResults": "Удаление всех результатов",
+          "getSavedResultFilename": "Получение пути к файлу результата",
+          "overwriteLoadedAlleyFilename": "Сохранение имени загруженной аллеи"
+        }
+      },
+      {
+        "name": "lic.js",
+        "type": "module",
+        "purpose": "Проверка лицензии",
+        "exports": {
+          "ok": "Лицензия валидна",
+          "vt": "Время окончания лицензии (timestamp)",
+          "vf": "Время начала лицензии (timestamp)",
+          "exp": "Лицензия истекла",
+          "ntr": "Лицензия ещё не активна",
+          "sw": "Программное обеспечение разрешено к использованию"
+        },
+        "mechanism": "HMAC-SHA256 проверка подписи на основе серийного номера и временных меток"
+      },
+      {
+        "name": "http-server.js",
+        "type": "module",
+        "purpose": "HTTP сервер для скачивания результатов инвентаризации",
+        "key_functions": {
+          "startResultDownloadServer": "Запуск сервера для скачивания TAR архивов с результатами"
+        }
+      },
+      {
+        "name": "box-counting.js",
+        "type": "module",
+        "purpose": "Модуль для работы с подсчётом коробок (альтернативный режим работы)",
+        "key_functions": {
+          "protocolPackMsg": "Упаковка сообщения протокола",
+          "sendReq": "Отправка запроса"
+        },
+        "events": {
+          "req": "Получен запрос от клиента",
+          "totalBoxes": "Получено количество коробок",
+          "palletBottomVisible": "Видимость дна паллеты"
+        }
+      },
+      {
+        "name": "index-box-counting.js",
+        "type": "alternative_entry",
+        "purpose": "Альтернативная точка входа для режима подсчёта коробок",
+        "differences_from_index_js": [
+          "Использует box-counting.js вместо protocol.js",
+          "Работает с задачами сканирования (alley, bin, zone)",
+          "Сохраняет результаты в boxCountingReport.json",
+          "Управляет направлением полёта (forward/backward)"
+        ]
+      }
+    ]
+  },
+  "data_flows": [
+    {
+      "id": "rc_to_photo",
+      "description": "RC Channels → Фотографирование",
+      "path": [
+        "MAVLink RC_CHANNELS",
+        "mavSystem.on('rc_channels')",
+        "checkButton() для RC_PHOTO_CH",
+        "takePhoto(photoId, callback)",
+        "camera.once('data')",
+        "exifRotate()",
+        "showInfoMessage() / dashboard.setState('lastPhoto')"
+      ]
+    },
+    {
+      "id": "heartbeat_to_status",
+      "description": "MAVLink Heartbeat → Статус",
+      "path": [
+        "Полётный контроллер",
+        "Serial Port (MAVLink)",
+        "mavSystem.on('heartbeat')",
+        "mavlinkHeartbeat = true",
+        "connectionStatus()",
+        "ui.update('connection', status)"
+      ]
+    }
+  ],
+  "environment_variables": {
+    "mavlink": {
+      "MAVLINK_SERIAL_PATH": {
+        "default": "/dev/ttyACM0",
+        "description": "Путь к последовательному порту MAVLink"
+      },
+      "MAVLINK_SERIAL_BAUD": {
+        "default": "57600",
+        "description": "Скорость порта MAVLink"
+      },
+      "MAVLINK_UDP_EN": {
+        "default": "false",
+        "description": "Включить UDP для MAVLink"
+      },
+      "MAVLINK_UDP_HOST": {
+        "default": "0.0.0.0",
+        "description": "Хост UDP для MAVLink"
+      },
+      "MAVLINK_UDP_PORT": {
+        "default": "14550",
+        "description": "Порт UDP для MAVLink"
+      },
+      "MAVLINK_SYSTEM_ID": {
+        "default": "1",
+        "description": "ID системы MAVLink"
+      }
+    },
+    "scanner_osd": {
+      "SCANNER_SERIAL_PATH": {
+        "default": "/dev/ttyAMA0",
+        "description": "Путь к последовательному порту сканера"
+      },
+      "SCANNER_SERIAL_BAUD": {
+        "default": "115200",
+        "description": "Скорость порта сканера"
+      },
+      "OSD_SERIAL_PATH": {
+        "default": "SCANNER_SERIAL_PATH",
+        "description": "Путь к последовательному порту OSD"
+      },
+      "OSD_SERIAL_BAUD": {
+        "default": "SCANNER_SERIAL_BAUD",
+        "description": "Скорость порта OSD"
+      },
+      "OSD_WIDTH": {
+        "default": "30",
+        "description": "Ширина экрана OSD"
+      },
+      "OSD_HEIGHT": {
+        "default": "16",
+        "description": "Высота экрана OSD"
+      }
+    },
+    "rc_channels": {
+      "RC_EMPTY_CH": {
+        "default": "6",
+        "description": "Номер канала для кнопки EMPTY"
+      },
+      "RC_RESCAN_CH": {
+        "default": "6",
+        "description": "Номер канала для кнопки RESCAN"
+      },
+      "RC_NO_TAG_CH": {
+        "default": "6",
+        "description": "Номер канала для кнопки NO_TAG"
+      },
+      "RC_UNREADABLE_CH": {
+        "default": "6",
+        "description": "Номер канала для кнопки UNREADABLE"
+      },
+      "RC_PHOTO_CH": {
+        "default": "7",
+        "description": "Номер канала для кнопки PHOTO"
+      },
+      "RC_SCANOFF_CH": {
+        "default": "8",
+        "description": "Номер канала для кнопки SCANOFF"
+      },
+      "RC_ALLEY_SWITCH_CH": {
+        "default": "9",
+        "description": "Номер канала для переключения аллей"
+      }
+    },
+    "protocol": {
+      "MINTT_PORT": {
+        "default": "55757",
+        "description": "Порт TCP сервера протокола"
+      },
+      "MINTT_HOST": {
+        "default": "0.0.0.0",
+        "description": "Хост TCP сервера протокола"
+      }
+    },
+    "camera": {
+      "CAMERA_EN": {
+        "default": "false",
+        "description": "Включить камеру"
+      },
+      "PHOTO_WIDTH": {
+        "default": "2028",
+        "description": "Ширина фотографии"
+      },
+      "PHOTO_HEIGHT": {
+        "default": "1520",
+        "description": "Высота фотографии"
+      },
+      "PHOTO_EXIF_ORIENTATION": {
+        "default": "6",
+        "description": "Ориентация EXIF (для rotation values см. http://www.cipa.jp/std/documents/e/DC-008-2012_E.pdf)"
+      },
+      "CAMERA_TIMEOUT": {
+        "default": "0",
+        "description": "Таймаут камеры в миллисекундах (0 = бесконечно)"
+      },
+      "CAMERA_FRAMERATE": {
+        "default": "10",
+        "description": "Частота кадров камеры"
+      }
+    },
+    "realsense": {
+      "REALSENSEPY_EN": {
+        "default": "false",
+        "description": "Включить RealSense"
+      },
+      "REALSENSEPY_UDP_HOST": {
+        "default": "localhost",
+        "description": "Хост UDP для RealSense"
+      },
+      "REALSENSEPY_UDP_PORT": {
+        "default": "14552",
+        "description": "Порт UDP для RealSense"
+      }
+    },
+    "copter_soft": {
+      "WAREHOUSE_FILE": {
+        "description": "Путь к файлу склада"
+      },
+      "WAREHOUSE_LOADED_ALLEY_FILE": {
+        "description": "Путь к файлу загруженной аллеи"
+      },
+      "WAREHOUSE_RESULTS_DIR": {
+        "description": "Директория результатов"
+      },
+      "WAREHOUSE_RESULTS_TAR_SERVER_PORT": {
+        "default": "8082",
+        "description": "Порт HTTP сервера для скачивания результатов"
+      }
+    },
+    "general": {
+      "DRONE_ID": {
+        "default": "00",
+        "description": "ID дрона"
+      },
+      "COPTER_SOFT_EN": {
+        "default": "false",
+        "description": "Включить модуль CopterSoft"
+      }
+    }
+  },
+  "initialization_sequence": [
+    "Загрузка переменных окружения (dotenv)",
+    "Проверка лицензии (lic.js)",
+    "Инициализация последовательных портов (MAVLink, OSD)",
+    "Создание MAVLink системы (MavSystem)",
+    "Настройка подписок на MAVLink сообщения (RC_CHANNELS, HEARTBEAT)",
+    "Инициализация протокола (protocol.js) - для совместимости",
+    "Инициализация дашборда (dashboard.js)",
+    "Настройка UI и OSD (ui.js, osd.js)",
+    "Подключение обработчиков событий (RC channels → фотографирование)",
+    "Запуск периодических задач (обновление IP, статуса подключения)"
+  ],
+  "dependencies": {
+    "main": [
+      "serialport",
+      "@serialport/parser-delimiter",
+      "ws",
+      "finalhandler",
+      "serve-static",
+      "lodash",
+      "piexifjs",
+      "cancelable-promise",
+      "debounce",
+      "dotenv"
+    ],
+    "external_commands": [
+      "libcamera-vid"
+    ]
+  },
+  "security": {
+    "licensing": "Проверка лицензии через HMAC-SHA256",
+    "path_traversal": "Защита в http-server.js через safePath()",
+    "websocket": "Таймаут неактивных соединений (60 секунд)"
+  },
+  "extensibility": {
+    "rc_channels": "Добавление новых RC каналов в index.js",
+    "ui_elements": "Добавление новых UI элементов в ui.js",
+    "protocol_topics": "Добавление новых топиков протокола в protocol.js",
+    "mavlink_commands": "Добавление новых MAVLink команд в mavlink/system.js"
+  }
+}
+
