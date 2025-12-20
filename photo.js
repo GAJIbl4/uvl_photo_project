@@ -16,18 +16,20 @@ let photoSaveDir = process.env.PHOTO_SAVE_DIR || './photos'
 let cameraFramerate = +(process.env.CAMERA_FRAMERATE || 10)
 
 // Допустимые разрешения для камеры Raspberry Pi (стандартные значения)
+// Высокие разрешения (3280x2464 и выше) могут требовать увеличения gpu_mem в config.txt
+// и могут не работать на всех моделях Raspberry Pi
 const VALID_RESOLUTIONS = [
-  { width: 640, height: 480, label: '640x480 (VGA)' },
-  { width: 800, height: 600, label: '800x600 (SVGA)' },
-  { width: 1024, height: 768, label: '1024x768 (XGA)' },
-  { width: 1280, height: 720, label: '1280x720 (HD)' },
-  { width: 1280, height: 960, label: '1280x960' },
-  { width: 1600, height: 1200, label: '1600x1200 (UXGA)' },
-  { width: 1920, height: 1080, label: '1920x1080 (Full HD)' },
-  { width: 2028, height: 1520, label: '2028x1520 (2MP)' },
-  { width: 2592, height: 1944, label: '2592x1944 (5MP)' },
-  { width: 3280, height: 2464, label: '3280x2464 (8MP)' },
-  { width: 4056, height: 3040, label: '4056x3040 (12MP)' },
+  { width: 640, height: 480, label: '640x480 (VGA)', recommended: true },
+  { width: 800, height: 600, label: '800x600 (SVGA)', recommended: true },
+  { width: 1024, height: 768, label: '1024x768 (XGA)', recommended: true },
+  { width: 1280, height: 720, label: '1280x720 (HD)', recommended: true },
+  { width: 1280, height: 960, label: '1280x960', recommended: true },
+  { width: 1600, height: 1200, label: '1600x1200 (UXGA)', recommended: true },
+  { width: 1920, height: 1080, label: '1920x1080 (Full HD)', recommended: true },
+  { width: 2028, height: 1520, label: '2028x1520 (2MP)', recommended: true },
+  { width: 2592, height: 1944, label: '2592x1944 (5MP)', recommended: false, warning: 'Может требовать увеличения gpu_mem' },
+  { width: 3280, height: 2464, label: '3280x2464 (8MP)', recommended: false, warning: 'Требует увеличения gpu_mem в config.txt' },
+  { width: 4056, height: 3040, label: '4056x3040 (12MP) - экспериментальное', recommended: false, warning: 'Может не работать из-за нехватки памяти' },
 ]
 
 // Допустимые значения FPS
@@ -46,6 +48,16 @@ const validateResolution = (width, height) => {
   if (!found) {
     // Разрешаем произвольные разрешения, но предупреждаем
     return { valid: true, warning: 'Разрешение не в списке стандартных. Может не поддерживаться камерой.' }
+  }
+  
+  // Проверяем предупреждения для высоких разрешений
+  if (found.warning) {
+    return { valid: true, warning: found.warning }
+  }
+  
+  // Предупреждение для очень высоких разрешений (может не хватить памяти)
+  if (w * h > 10000000) { // Больше 10MP
+    return { valid: true, warning: 'Высокое разрешение может не работать из-за нехватки памяти GPU. Увеличьте gpu_mem в /boot/config.txt' }
   }
   
   return { valid: true }
@@ -88,16 +100,32 @@ const initCamera = () => {
     }
   }
   
+  // Сбрасываем ошибку перед инициализацией
+  cameraError = false
+  
   camera = new LibcameravidJPEGStream({
     width: photoWidth,
     height: photoHeight,
     framerate: cameraFramerate,
   }, err => {
     cameraError = err
-    if (err) console.log('[photo]: Camera error:', err.message)
+    if (err) {
+      console.log('[photo]: Camera error:', err.message)
+      // Если ошибка связана с памятью, предлагаем снизить разрешение
+      if (err.message && (err.message.includes('memory') || err.message.includes('allocate') || err.message.includes('buffer') || err.message.includes('failed to start'))) {
+        console.log('[photo]: Возможно, не хватает памяти для данного разрешения. Попробуйте снизить разрешение или увеличить gpu_mem в /boot/config.txt')
+      }
+    }
   })
   
   camera.once?.('data', data => null)
+  
+  // Проверяем ошибку через небольшую задержку
+  setTimeout(() => {
+    if (cameraError) {
+      console.log(`[photo]: Не удалось запустить камеру с разрешением ${photoWidth}x${photoHeight}. Ошибка: ${cameraError.message}`)
+    }
+  }, 1000)
 }
 
 initCamera()
@@ -291,24 +319,51 @@ const reloadCamera = () => {
   }
   
   // Небольшая задержка перед перезапуском
-  setTimeout(() => {
-    try {
-      initCamera()
-      console.log('[photo]: Camera reloaded successfully')
-    } catch (err) {
-      console.log('[photo]: Failed to reload camera:', err.message)
-      cameraError = err
-    }
-  }, 500)
-  
-  return {
-    success: true,
-    settings: getCameraSettings(),
-    warnings: [
-      resolutionValidation.warning,
-      fpsValidation.warning
-    ].filter(Boolean)
-  }
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      try {
+        initCamera()
+        
+        // Проверяем успешность запуска через 1.5 секунды
+        setTimeout(() => {
+          if (cameraError) {
+            const errorMsg = cameraError.message || 'Неизвестная ошибка'
+            console.log('[photo]: Failed to reload camera:', errorMsg)
+            
+            // Если ошибка связана с памятью, предлагаем решение
+            let userError = errorMsg
+            if (errorMsg.includes('memory') || errorMsg.includes('allocate') || errorMsg.includes('buffer') || errorMsg.includes('failed to start')) {
+              userError = `Не удалось запустить камеру с разрешением ${photoWidth}x${photoHeight}. Не хватает памяти GPU. Попробуйте: 1) Снизить разрешение до 2592x1944 или ниже, 2) Увеличить gpu_mem в /boot/config.txt (например, gpu_mem=128 или gpu_mem=256), затем перезагрузить Raspberry Pi`
+            }
+            
+            resolve({
+              success: false,
+              error: userError,
+              settings: getCameraSettings()
+            })
+          } else {
+            console.log('[photo]: Camera reloaded successfully')
+            resolve({
+              success: true,
+              settings: getCameraSettings(),
+              warnings: [
+                resolutionValidation.warning,
+                fpsValidation.warning
+              ].filter(Boolean)
+            })
+          }
+        }, 1500)
+      } catch (err) {
+        console.log('[photo]: Failed to reload camera:', err.message)
+        cameraError = err
+        resolve({
+          success: false,
+          error: err.message,
+          settings: getCameraSettings()
+        })
+      }
+    }, 500)
+  })
 }
 
 const getPhotoList = () => {

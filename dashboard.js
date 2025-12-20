@@ -148,14 +148,24 @@ wss.on('connection', ws => {
         ws.send(`error:${err.message}`)
       }
     } else if (name === 'reloadCamera') {
-      try {
-        const settings = reloadCamera()
-        ws.send(`cameraSettings:${JSON.stringify(settings)}`)
-        setDashboardState('cameraSettings', settings)
-        ws.send(`info:Camera reloaded successfully`)
-      } catch (err) {
+      reloadCamera().then(result => {
+        const resolutions = getValidResolutions()
+        const fps = getValidFPS()
+        if (result.success) {
+          ws.send(`cameraSettings:${JSON.stringify({ ...result.settings, validResolutions: resolutions, validFPS: fps })}`)
+          setDashboardState('cameraSettings', result.settings)
+          if (result.warnings && result.warnings.length > 0) {
+            ws.send(`warning:Камера перезагружена. Предупреждения: ${result.warnings.join('; ')}`)
+          } else {
+            ws.send(`info:Камера перезагружена успешно`)
+          }
+        } else {
+          ws.send(`error:${result.error}`)
+          ws.send(`cameraSettings:${JSON.stringify({ ...result.settings, validResolutions: resolutions, validFPS: fps })}`)
+        }
+      }).catch(err => {
         ws.send(`error:${err.message}`)
-      }
+      })
     } else if (name === 'deleteAllPhotos') {
       try {
         const result = deleteAllPhotos()
