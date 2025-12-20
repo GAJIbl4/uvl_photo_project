@@ -639,8 +639,8 @@ module.exports = {
   reloadCamera,
   getPhotoList,
   deleteAllPhotos,
-  getValidResolutions,
-  getValidFPS,
-  validateResolution,
-  validateFPS
+  getCameraModes,
+  getExposureModes,
+  getMeteringModes,
+  getAwbModes
 }
